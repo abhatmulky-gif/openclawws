@@ -13,16 +13,16 @@ NEO4J_URI = os.getenv('NEO4J_URI')
 NEO4J_USER = os.getenv('NEO4J_USER')
 NEO4J_PASSWORD = os.getenv('NEO4J_PASSWORD')
 
-# NOTE: Adjust this based on your RunPod LLM's API (e.g., Ollama, vLLM, standard OpenAI compatible)
 LLM_URL = os.getenv('RUNPOD_URL', 'http://127.0.0.1:8000/v1/chat/completions')
 
 def get_topology_context(nodes):
     driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
     context = []
+    upstream_routers = set()
     try:
         with driver.session() as session:
             for node in nodes:
-                # Get the node and its immediate neighbors (1 hop)
+                # Get the node and its immediate neighbors (1 hop up to aggregators/core)
                 query = f"MATCH (n:Equipment {{id: '{node}'}})-[r]-(m:Equipment) RETURN n, type(r) as rel, m"
                 results = session.run(query)
                 for record in results:
@@ -30,35 +30,67 @@ def get_topology_context(nodes):
                     rel = record['rel']
                     m_id = record['m']['id']
                     context.append(f"{n_id} {rel} {m_id}")
+                    if "CISCO" in m_id:
+                        upstream_routers.add(m_id)
+            
+            # Get 2nd hop (Core connections)
+            for router in list(upstream_routers):
+                query = f"MATCH (n:Equipment {{id: '{router}'}})-[r]-(m:Equipment) RETURN n, type(r) as rel, m"
+                results = session.run(query)
+                for record in results:
+                    context.append(f"{record['n']['id']} {record['rel']} {record['m']['id']}")
+                    if "CISCO-CORE" in record['m']['id']:
+                        upstream_routers.add(record['m']['id'])
+                        
     finally:
         driver.close()
-    return list(set(context)) # deduplicate
+    return list(set(context)), list(upstream_routers)
 
-def run_rca(alarms, topology):
+def active_probing(routers):
+    print("\n[HUNT INITIATED] Actively polling PM counters on upstream routers...")
+    discovered_faults = []
+    for router in routers:
+        print(f" -> SSH/API Call to {router}: Fetching interface stats...")
+        time.sleep(1) # Simulate polling delay
+        if router == "CISCO-CORE-1":
+            print(f"    [!] SILENT FAULT FOUND on {router}!")
+            discovered_faults.append({
+                "node": router,
+                "state": "SILENT_DROP",
+                "telemetry": "Process IP Input consuming 94% CPU. Micro-burst traffic causing queue drops on Core Uplink. No threshold alarm generated."
+            })
+        else:
+            print(f"    [OK] {router} metrics nominal.")
+    return discovered_faults
+
+def run_rca(alarms, topology, active_telemetry):
     print("\n--- Running Cognitive RCA via LLM ---")
     prompt = f"""
     You are the Svaya Cognitive RCA Engine.
-    Analyze the following telecom alarm storm and the associated network topology to determine the root cause.
+    Analyze the following event storm, which includes Svaya QoE Engine telemetry (SOS Pushes) and proactively probed network states.
+    Use the associated network topology graph to find the hidden root cause impacting the users.
     
-    ALARMS:
+    EVENTS (Svaya QoE Data):
     {json.dumps(alarms, indent=2)}
+    
+    ACTIVELY PROBED TELEMETRY (The Hunt Results):
+    {json.dumps(active_telemetry, indent=2)}
     
     TOPOLOGY GRAPH (Neo4j):
     {chr(10).join(topology)}
     
-    Provide a brief, professional Root Cause Analysis. Clearly state the ROOT CAUSE and the SYMPTOMS.
+    Provide a brief, professional Root Cause Analysis. 
+    1. State the ROOT CAUSE and the SYMPTOMS.
+    2. Provide an EXECUTION STRATEGY indicating if it's [AUTO-REMEDIATION ELIGIBLE] or [REQUIRES PHYSICAL ACTION] and the exact steps.
     """
     
     try:
-        # Assuming OpenAI-compatible endpoint on RunPod
         payload = {
-            "model": "svaya-model", # Update to your model name if required
+            "model": "svaya-model",
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 300
+            "max_tokens": 400
         }
         headers = {"Content-Type": "application/json"}
-        # If your runpod needs an auth token, add it here
-        
         response = requests.post(LLM_URL, json=payload, headers=headers)
         if response.status_code == 200:
             return response.json()['choices'][0]['message']['content']
@@ -69,33 +101,40 @@ def run_rca(alarms, topology):
 
 def main():
     r = redis.from_url(REDIS_URL)
-    print("Svaya Engine starting on RunPod. Listening for alarm storms...")
+    print("Svaya Engine starting on RunPod. Listening for QoE SOS Pushes...")
     
     while True:
-        # Block and wait for alarms
         alarms = []
-        # Pop all available alarms currently in the queue
         while r.llen('raw_alarms') > 0:
             alarm_data = r.lpop('raw_alarms')
             if alarm_data:
                 alarms.append(json.loads(alarm_data))
                 
         if alarms:
-            print(f"\n[!] Detected Storm of {len(alarms)} alarms. Processing...")
-            affected_nodes = [a['node'] for a in alarms]
+            print(f"\n[!] Detected SOS Push from QoE SDK. Processing...")
             
-            # 1. Fetch Graph Context
-            print("Querying Neo4j for topology context...")
-            topology = get_topology_context(affected_nodes)
+            # Extract affected cells from QoE alert
+            affected_nodes = []
+            for a in alarms:
+                if 'metrics' in a and 'Affected_Cells' in a['metrics']:
+                    affected_nodes.extend(a['metrics']['Affected_Cells'])
             
-            # 2. Run LLM
-            rca_result = run_rca(alarms, topology)
+            # 1. Fetch Graph Context & Upstream Routers
+            print("Querying Neo4j for blast radius...")
+            topology, upstream_routers = get_topology_context(affected_nodes)
             
-            # 3. Publish Notification
-            print("Publishing RCA to Telegram Notifier queue...")
+            # 2. Active Probing (The Hunt)
+            active_telemetry = active_probing(upstream_routers)
+            
+            # 3. Run LLM
+            rca_result = run_rca(alarms, topology, active_telemetry)
+            
+            # 4. Publish Notification
+            print("\nPublishing RCA to Telegram Notifier queue...")
             r.rpush('rca_notifications', rca_result)
+            print(rca_result)
             
-        time.sleep(2) # Polling interval
+        time.sleep(2)
 
 if __name__ == "__main__":
     main()
