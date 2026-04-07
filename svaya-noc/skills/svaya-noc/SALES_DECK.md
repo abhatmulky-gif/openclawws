@@ -19,7 +19,14 @@
     *   **We learn from your past:** We ingest your closed ServiceNow tickets and vendor PDF manuals into our Vector Database. 
     *   **Outcome:** Svaya learns your network's "Tribal Knowledge" on Day 1, with zero code.
 
-## Slide 4: Baking "Trust" into the Business Model
+## Slide 5: The "Ask" (Frictionless Deployment)
+*   **What we need from the Operator:**
+    1.  **Topology Data (One-Time/Periodic):** Read-only access to your Inventory DB (or a CSV dump) to map the physical/logical links into our Neo4j graph.
+    2.  **Historical Tickets (The Training Data):** A dump of closed, resolved trouble tickets (ServiceNow/Remedy) and vendor PDF manuals for our Vector DB. *This teaches the AI your specific network quirks.*
+    3.  **Live Telemetry Stream (Read-Only):** A Kafka topic, Syslog forwarder, or SNMP trap feed from your existing network. No direct write-access to routers required.
+    4.  **App Integration (The Sensor):** Approval to bundle the 2MB Svaya SDK library into the next update of your consumer app.
+
+## Slide 6: Baking "Trust" into the Business Model
 *   Telcos cannot hand the keys over to a "Black Box" AI. Svaya's business model and architecture are built around **Provable Trust**:
     *   **Phase 1 - The Advisor (Read-Only):** Svaya acts as an incredibly smart NOC analyst. It reads the network, cites historical tickets (Explainable AI), and *suggests* the fix.
     *   **Phase 2 - The Co-Pilot (Human-in-the-Loop):** Svaya pre-writes the configuration patch. A senior engineer clicks "Approve" to push it to the network.

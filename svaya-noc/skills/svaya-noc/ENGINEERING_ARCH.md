@@ -31,7 +31,8 @@
 
 ### 2.1 The Edge: Svaya QoE Engine (Android SDK)
 *   **Role:** The Ground-Truth Trigger.
-*   **Logic:** Runs passive, zero-impact collection via `TrafficStats` and `TelephonyManager`. Computes composite score locally (RSRP + SINR + CQI + Throughput + Z-axis Barometer).
+*   **Security & DRM:** Device memory and local telemetry are protected via DRM. The SDK remains dormant until explicitly enabled by the operator. Encryption keys are managed dynamically *per network node*, with specific weightages assigned per node based on the expected volume of data to protect.
+*   **Logic:** Runs passive, zero-impact collection via `TrafficStats` and `TelephonyManager`. QoE analysis is highly granular (computed *per cell*) and must be activated in tandem with the Svaya Cognitive Core. Computes composite score locally (RSRP + SINR + CQI + Throughput + Z-axis Barometer).
 *   **Transmission:** Hourly 2KB batches to save battery. Bypasses batching to send instant "SOS Push" if QoE drops below threshold (e.g., < 30).
 
 ### 2.2 The State & Topology (IT Plumbing)
