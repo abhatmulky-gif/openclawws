@@ -43,6 +43,24 @@ def analyze_alarm():
         return jsonify({"analysis": f"Error connecting to local Ollama: {str(e)}"})
 
 
+def push_to_openclaw_telegram(message):
+    """Pushes an alert directly to the Telegram chat so OpenClaw can see it"""
+    # Configured for Avinash's Svaya Alerts Bot
+    BOT_TOKEN = "8662847867:AAENJtmV-8HwGKCRLn8FGOqAdlPevlYV7dU"
+    CHAT_ID = "7041322342"
+    
+    if BOT_TOKEN == "YOUR_NEW_BOT_TOKEN":
+        print("[WARNING] Telegram BOT_TOKEN not set. Skipping Telegram push.")
+        return
+        
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": CHAT_ID, "text": f"🚨 **SVAYA RUNPOD ALERT** 🚨\n{message}", "parse_mode": "Markdown"}
+    try:
+        requests.post(url, json=payload, timeout=5)
+    except Exception as e:
+        print("Failed to send Telegram alert:", e)
+
+
 @app.route('/tmf921/intent', methods=['POST'])
 def handle_tmf921_intent():
     """ TM Forum TMF921 Intent Management API Endpoint """
@@ -92,12 +110,17 @@ def handle_tmf921_intent():
         response = requests.post("http://127.0.0.1:11434/api/generate", 
                                  json={"model": "llama3", "prompt": prompt, "stream": False})
         
+        llm_response_text = response.json().get("response", "Error getting LLM response")
+        
+        # 🚨 Push the alert to Telegram! 🚨
+        push_to_openclaw_telegram(f"Received TMF921 Intent for `{intent_id}`.\n\n*Action Plan:*\n{llm_response_text}")
+        
         # In a real TMF921 system, we would immediately return an "Acknowledged" status 
         # and evaluate asynchronously, but for the POC we return the LLM's translation plan.
         return jsonify({
             "intentId": intent_id,
             "handlingState": "Acknowledged",
-            "translation_plan": response.json().get("response", "Error getting LLM response")
+            "translation_plan": llm_response_text
         })
     except Exception as e:
         return jsonify({"handlingState": "Rejected", "error": f"Error connecting to local Ollama: {str(e)}"})
