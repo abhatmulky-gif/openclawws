@@ -1,11 +1,11 @@
 """
 ASTRA Cognitive Engine — FWA Edition
-Listens for CPE QoE SOS events from the Redis queue, runs multi-vendor
-topology correlation via Neo4j, applies ASTRA's graduated autonomy model,
-and publishes RCA decisions.
+Listens for CPE QoE SOS events from the Redis queue.
+All topology and reasoning queries run against TypeDB (replaces Neo4j).
+Datalog inference rules in TypeDB provide deterministic decisions;
+the LLM is used only for explanation and operator communication.
 
-Evolved from Svaya V9 engine. Spec ref: ASTRA Architecture Spec v1.1,
-Sections 4.2–4.7 (Layers 1–6).
+Spec ref: ASTRA Architecture Spec v1.1, Sections 4.4–4.6
 """
 
 import os
@@ -14,166 +14,100 @@ import time
 import sys
 import redis
 import requests
-from neo4j import GraphDatabase
 from dotenv import load_dotenv
 
-# Allow importing MVNL and Uplink Engine from parent directory
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+# Allow importing ASTRA modules from the project root
+_ROOT = os.path.join(os.path.dirname(__file__), "../..")
+sys.path.insert(0, _ROOT)
+
 from fwa_mvnl import normalize, normalize_alarm
-from fwa_uplink_engine import (
-    run_uplink_engine, InterferencePair,
-    CanonicalUplinkMetrics, GREEN, AMBER, RED,
+from fwa_uplink_engine import run_uplink_engine, GREEN, AMBER, RED
+from fwa_typedb_client import (
+    get_topology_context,
+    get_interference_pairs,
+    get_inferred_decisions,
+    insert_cpe_telemetry,
+    ping as typedb_ping,
 )
 
 env_path = os.path.join(os.path.dirname(__file__), "svaya-poc.env")
 load_dotenv(env_path)
 
 REDIS_URL = os.getenv("REDIS_URL")
-NEO4J_URI = os.getenv("NEO4J_URI")
-NEO4J_USER = os.getenv("NEO4J_USER")
-NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
-LLM_URL = os.getenv("RUNPOD_URL", "http://127.0.0.1:11434/api/chat")
+LLM_URL   = os.getenv("RUNPOD_URL", "http://127.0.0.1:11434/api/chat")
 
-# ---------------------------------------------------------------------------
-# Graduated autonomy tier labels (spec Section 6.1)
-# ---------------------------------------------------------------------------
 AUTONOMY_LABELS = {
-    GREEN: "GREEN — Auto-Execute (No approval required)",
-    AMBER: "AMBER — Pending NOC Approval",
-    RED:   "RED — Pending Engineering Review",
-}
-
-# FWA-specific operation → autonomy tier mapping
-FWA_AUTONOMY_MAP = {
-    "CPE_REBOOT":              GREEN,
-    "MIMO_RANK_ADJUSTMENT":    GREEN,
-    "WIFI_CHANNEL_OPT":        GREEN,
-    "DPD_UPDATE":              GREEN,
-    "SINGLE_CELL_BEAM_ADJ":    AMBER,
-    "CARRIER_SHUTDOWN":        AMBER,
-    "MULTI_SITE_COMP":         AMBER,
-    "TDD_RATIO_CHANGE":        RED,
-    "UL_DL_DECOUPLING":        RED,
-    "FIRMWARE_UPGRADE":        RED,
+    GREEN: "GREEN  Auto-Execute (no approval required)",
+    AMBER: "AMBER  Pending NOC Approval",
+    RED:   "RED    Pending Engineering Review",
 }
 
 
 # ---------------------------------------------------------------------------
-# Neo4j topology: FWA CPE-centric graph queries
+# DRM validation (CPE data authentication)
 # ---------------------------------------------------------------------------
 
-def get_fwa_topology_context(cpe_ids: list[str]) -> tuple[list[str], list[str]]:
-    """
-    Queries Neo4j for CPE → Cell → NMS topology.
-    Returns (topology_edges, upstream_nms_systems).
-    """
-    driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
-    topology = []
-    nms_systems = set()
-    try:
-        with driver.session() as session:
-            for cpe_id in cpe_ids:
-                # CPE → Cell → NMS chain
-                q = (
-                    "MATCH (c:CPE {id: $cpe_id})-[r]-(n) "
-                    "RETURN c.id as src, type(r) as rel, n.id as dst, n.vendor as vendor"
-                )
-                for rec in session.run(q, cpe_id=cpe_id):
-                    edge = f"{rec['src']} -{rec['rel']}→ {rec['dst']}"
-                    topology.append(edge)
-                    if rec.get("vendor") in ["Ericsson", "Nokia", "Samsung", "Huawei"]:
-                        nms_systems.add(rec["dst"])
-
-            # Interference neighbors
-            for cpe_id in cpe_ids:
-                q = (
-                    "MATCH (c:CPE {id: $cpe_id})-[:INTERFERES_WITH]-(n:CPE) "
-                    "RETURN c.id as src, n.id as dst"
-                )
-                for rec in session.run(q, cpe_id=cpe_id):
-                    topology.append(f"{rec['src']} -INTERFERES_WITH→ {rec['dst']}")
-
-    finally:
-        driver.close()
-    return list(set(topology)), list(nms_systems)
-
-
-def get_interference_pairs_from_graph(cpe_ids: list[str]) -> list[InterferencePair]:
-    """Fetches persistent interference edges from Neo4j for the given CPEs."""
-    driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
-    pairs = []
-    try:
-        with driver.session() as session:
-            for cpe_id in cpe_ids:
-                q = (
-                    "MATCH (v:CPE {id: $cpe_id})<-[:INTERFERES_WITH]-(i:CPE) "
-                    "OPTIONAL MATCH (i)-[:SERVED_BY]->(ci:Cell) "
-                    "OPTIONAL MATCH (v)-[:SERVED_BY]->(cv:Cell) "
-                    "RETURN i.id as interferer, v.id as victim, "
-                    "       i.vendor as iv, v.vendor as vv, "
-                    "       ci.id as cell_i, cv.id as cell_v, "
-                    "       i.interference_db as idb, i.persistence_h as ph"
-                )
-                for rec in session.run(q, cpe_id=cpe_id):
-                    pairs.append(InterferencePair(
-                        interferer_cpe=rec["interferer"],
-                        victim_cpe=rec["victim"],
-                        cell_interferer=rec.get("cell_i") or "",
-                        cell_victim=rec.get("cell_v") or "",
-                        interference_db=float(rec.get("idb") or 0),
-                        persistence_hours=float(rec.get("ph") or 0),
-                        vendor_interferer=rec.get("iv") or "",
-                        vendor_victim=rec.get("vv") or "",
-                    ))
-    finally:
-        driver.close()
-    return pairs
+def validate_drm(events: list[dict]) -> list[dict]:
+    valid = []
+    for ev in events:
+        sig = ev.get("drm_signature", "MISSING")
+        if "VALID" in sig:
+            print(f"  [SECURITY] Valid DRM ({sig}). Accepted.")
+            valid.append(ev)
+        else:
+            print(f"  [SECURITY] Invalid DRM on {ev.get('cpe_id', '?')}. Dropped.")
+    return valid
 
 
 # ---------------------------------------------------------------------------
-# LLM-powered FWA RCA
+# LLM-powered FWA RCA (advisory only — decisions come from Datalog)
 # ---------------------------------------------------------------------------
 
 def run_fwa_rca(
-    alarms: list[dict],
+    events: list[dict],
     topology: list[str],
-    uplink_decisions: dict,
-    active_telemetry: list[dict],
+    inferred: dict,
+    uplink_result: dict,
 ) -> str:
-    green_actions = uplink_decisions.get("execution_plan", {}).get("auto_execute", [])
-    amber_actions = uplink_decisions.get("execution_plan", {}).get("pending_noc_approval", [])
+    green_actions = uplink_result.get("execution_plan", {}).get("auto_execute", [])
+    amber_actions = uplink_result.get("execution_plan", {}).get("pending_noc_approval", [])
+
+    # Include TypeDB Datalog decisions in the prompt context
+    datalog_summary = {
+        "green_auto_cpes": [d.get("cpe_id") for d in inferred.get("green_auto", [])],
+        "amber_noc_interference": [
+            f"{d.get('interferer')} → {d.get('cpe_id')}"
+            for d in inferred.get("amber_noc", []) if "interferer" in d
+        ],
+        "red_silent_zone": [d.get("cpe_id") for d in inferred.get("red_engineering", [])],
+        "uplink_audit_required": [d.get("cpe_id") for d in inferred.get("uplink_audit_required", [])],
+    }
 
     prompt = f"""
-You are ASTRA, the FWA Autonomous RAN Assurance AI (inspired by Svaya V9).
-Perform a Root Cause Analysis for the following FWA uplink event.
+You are ASTRA, the FWA Autonomous RAN Assurance AI (built on Svaya V9 architecture).
+The Datalog reasoning engine (TypeDB) has already determined the safety-critical decisions below.
+Your role is to explain the Root Cause Analysis to the NOC operator and confirm the action plan.
 
 === CPE SOS EVENTS ===
-{json.dumps(alarms, indent=2)}
+{json.dumps(events, indent=2)}
 
-=== ASTRA UPLINK ENGINE DECISIONS ===
-Green (Auto-Execute): {json.dumps(green_actions, indent=2)}
-Amber (NOC Approval): {json.dumps(amber_actions, indent=2)}
+=== TYPEDB DATALOG DECISIONS (deterministic, no LLM) ===
+{json.dumps(datalog_summary, indent=2)}
 
-=== TOPOLOGY GRAPH (Neo4j) ===
-{chr(10).join(topology) if topology else "No topology data available."}
+=== UPLINK ENGINE EXECUTION PLAN ===
+Green (auto-execute): {json.dumps(green_actions, indent=2)}
+Amber (NOC approval): {json.dumps(amber_actions, indent=2)}
 
-=== ACTIVE TELEMETRY ===
-{json.dumps(active_telemetry, indent=2)}
+=== TOPOLOGY GRAPH (TypeDB) ===
+{chr(10).join(topology) if topology else "TypeDB unavailable — topology not fetched."}
 
-Provide a concise professional FWA RCA:
-1. ROOT CAUSE — Identify which FWA uplink challenge applies:
-   (a) Power Splitting / Rank Dilemma  (b) UL/DL Coverage Asymmetry
-   (c) High PAPR / Thermal Stress      (d) Static Inter-Cell Interference
-2. AFFECTED HOUSEHOLDS — List CPE IDs and their impact.
-3. EXECUTION STRATEGY:
-   - Green actions already queued for auto-execution (list them).
-   - Amber actions awaiting NOC approval (list with rationale).
-   - Red actions requiring engineering review (if any).
-4. TRUST DASHBOARD:
-   - Confidence Score
-   - Data Source Tier (which CPE intelligence tier provided the key signal)
-   - Estimated household impact if left unresolved
+Provide a concise FWA RCA for the NOC operator:
+1. ROOT CAUSE — Which FWA uplink challenge?
+   (a) Power Splitting/Rank Dilemma  (b) UL/DL Coverage Asymmetry
+   (c) High PAPR/Thermal Stress      (d) Static Inter-Cell Interference
+2. AFFECTED HOUSEHOLDS — CPE IDs and estimated impact.
+3. EXECUTION SUMMARY — confirm what will auto-execute vs. what needs approval.
+4. TRUST DASHBOARD — Confidence score + data source tier + counterfactual impact estimate.
 """
 
     try:
@@ -184,63 +118,73 @@ Provide a concise professional FWA RCA:
                 "messages": [{"role": "user", "content": prompt}],
                 "stream": False,
             },
+            timeout=60,
         )
         if resp.status_code == 200:
             return resp.json()["message"]["content"]
         return f"LLM API error: {resp.text}"
     except Exception as e:
-        return f"LLM unreachable: {e}"
+        return f"LLM unreachable at Ollama: {e}"
 
 
 # ---------------------------------------------------------------------------
-# DRM validation (retained from Svaya, adapted for FWA)
+# Dashboard printer + Redis state publisher
 # ---------------------------------------------------------------------------
 
-def validate_drm(alarms: list[dict]) -> list[dict]:
-    valid = []
-    for alarm in alarms:
-        sig = alarm.get("drm_signature", "MISSING")
-        if "VALID" in sig:
-            print(f"  [SECURITY] Valid DRM signature ({sig}). Accepted.")
-            valid.append(alarm)
-        else:
-            print(f"  [SECURITY] Invalid DRM signature on payload from {alarm.get('cpe_id', '?')}. Dropped.")
-    return valid
+def publish_dashboard(r: redis.Redis, events: list[dict], inferred: dict, uplink_result: dict, rca: str):
+    green_inferred = len(inferred.get("green_auto", []))
+    amber_inferred = len(inferred.get("amber_noc", []))
+    red_inferred   = len(inferred.get("red_engineering", []))
+    audit          = len(inferred.get("uplink_audit_required", []))
+    isolated       = len(inferred.get("isolated_cpes", []))
 
-
-# ---------------------------------------------------------------------------
-# Dashboard state publisher
-# ---------------------------------------------------------------------------
-
-def publish_dashboard(r: redis.Redis, alarms: list[dict], uplink_result: dict, rca: str):
-    green = uplink_result.get("green_auto", 0)
-    amber = uplink_result.get("amber_noc", 0)
-    red = uplink_result.get("red_engineering", 0)
-    total = green + amber + red
+    uplink_green = uplink_result.get("green_auto", 0)
+    uplink_amber = uplink_result.get("amber_noc", 0)
+    uplink_red   = uplink_result.get("red_engineering", 0)
 
     state = {
         "mode": "ASTRA FWA — GRADUATED AUTONOMY",
-        "cpes_analyzed": len(alarms),
-        "total_decisions": total,
-        "green_auto": green,
-        "amber_noc": amber,
-        "red_engineering": red,
-        "guardrails": "Deterministic Datalog rules active. LLM advisory only.",
+        "graph_backend": "TypeDB (Datalog deterministic reasoning)",
+        "cpes_in_event": len(events),
+        "typedb_inferred": {
+            "green_auto": green_inferred,
+            "amber_noc": amber_inferred,
+            "red_engineering": red_inferred,
+            "uplink_audit": audit,
+            "isolated": isolated,
+        },
+        "uplink_engine": {
+            "green_auto": uplink_green,
+            "amber_noc": uplink_amber,
+            "red_engineering": uplink_red,
+        },
+        "guardrails": "All decisions via deterministic Datalog rules. LLM = explanation only.",
         "rca_summary": rca[:500],
         "timestamp": time.time(),
     }
     r.set("astra_dashboard_state", json.dumps(state))
 
-    print("\n" + "=" * 60)
+    w = 60
+    print("\n" + "=" * w)
     print("ASTRA FWA TRUST DASHBOARD")
-    print("=" * 60)
-    print(f"CPEs Analyzed:        {len(alarms)}")
-    print(f"Decisions Generated:  {total}")
-    print(f"  {AUTONOMY_LABELS[GREEN]}: {green}")
-    print(f"  {AUTONOMY_LABELS[AMBER]}: {amber}")
-    print(f"  {AUTONOMY_LABELS[RED]}:   {red}")
-    print("Guardrails: Deterministic Datalog rules (TypeDB) — zero LLM in decision loop")
-    print("=" * 60 + "\n")
+    print("=" * w)
+    print(f"Knowledge Graph:  TypeDB (Datalog, deterministic)")
+    print(f"CPEs in Event:    {len(events)}")
+    print()
+    print("TypeDB Inference Results (deterministic Datalog rules):")
+    print(f"  {AUTONOMY_LABELS[GREEN]}: {green_inferred}")
+    print(f"  {AUTONOMY_LABELS[AMBER]}: {amber_inferred}")
+    print(f"  {AUTONOMY_LABELS[RED]}:   {red_inferred}")
+    print(f"  Uplink Audit Required: {audit}")
+    print(f"  Cell Isolation Cascade: {isolated}")
+    print()
+    print("Uplink Intelligence Engine:")
+    print(f"  {AUTONOMY_LABELS[GREEN]}: {uplink_green}")
+    print(f"  {AUTONOMY_LABELS[AMBER]}: {uplink_amber}")
+    print(f"  {AUTONOMY_LABELS[RED]}:   {uplink_red}")
+    print()
+    print("Guardrails: Deterministic Datalog (TypeDB) — zero LLM in decision loop")
+    print("=" * w + "\n")
 
 
 # ---------------------------------------------------------------------------
@@ -248,8 +192,14 @@ def publish_dashboard(r: redis.Redis, alarms: list[dict], uplink_result: dict, r
 # ---------------------------------------------------------------------------
 
 def main():
+    # Verify TypeDB is reachable before starting
+    if not typedb_ping():
+        print(f"[WARN] TypeDB not reachable at {TYPEDB_HOST_NOTE}. "
+              "Topology queries will be skipped. Run topology_typedb.py first.")
+
     r = redis.from_url(REDIS_URL)
     print("ASTRA FWA Engine starting. Listening for CPE SOS events on Redis...")
+    print("Knowledge Graph: TypeDB (Datalog deterministic reasoning)")
 
     while True:
         raw_events = []
@@ -259,71 +209,88 @@ def main():
                 raw_events.append(json.loads(item))
 
         if raw_events:
-            print(f"\n[!] {len(raw_events)} SOS event(s) received. Processing...")
+            print(f"\n[!] {len(raw_events)} SOS event(s) received.")
 
             # 1. DRM validation
             print("[SECURITY] Validating DRM signatures...")
-            valid_events = validate_drm(raw_events)
-            if not valid_events:
-                print("[SECURITY] All payloads failed DRM. Discarding batch.")
+            events = validate_drm(raw_events)
+            if not events:
+                print("[SECURITY] All payloads failed DRM. Discarding.")
                 time.sleep(2)
                 continue
 
-            # 2. Normalize through MVNL (best effort)
-            canonical_metrics: list[CanonicalUplinkMetrics] = []
-            for ev in valid_events:
+            # 2. Normalize through MVNL + persist to TypeDB
+            canonical_metrics = []
+            for ev in events:
                 if "source" in ev or "vendor" in ev:
                     try:
-                        canonical_metrics.append(normalize(ev))
+                        cm = normalize(ev)
+                        canonical_metrics.append(cm)
+                        # Write canonical metric into TypeDB knowledge graph
+                        insert_cpe_telemetry(cm)
                     except Exception as exc:
-                        print(f"  MVNL normalization skipped: {exc}")
+                        print(f"  MVNL/TypeDB error: {exc}")
 
-            # 3. Extract affected CPE IDs
+            # 3. Affected CPE IDs
             affected_cpes = list({
                 ev.get("cpe_id") or ev.get("ueId", "unknown")
-                for ev in valid_events
+                for ev in events
             })
             print(f"  Affected CPEs: {affected_cpes}")
 
-            # 4. Topology context from Neo4j
-            topology, nms_list = [], []
+            # 4. Topology context from TypeDB (replaces Neo4j)
+            topology = []
             try:
-                print("  Querying Neo4j for FWA topology context...")
-                topology, nms_list = get_fwa_topology_context(affected_cpes)
-                print(f"  {len(topology)} topology edges found, {len(nms_list)} NMS systems identified")
+                print("  Querying TypeDB for FWA topology context...")
+                topology, nms_list = get_topology_context(affected_cpes)
+                print(f"  {len(topology)} topology edges, {len(nms_list)} NMS systems")
             except Exception as e:
-                print(f"  Neo4j unavailable ({e}) — proceeding without topology")
+                print(f"  TypeDB topology query failed: {e}")
 
-            # 5. Interference pairs from graph
+            # 5. Interference pairs from TypeDB (replaces Neo4j INTERFERES_WITH query)
             interference_pairs = []
             try:
-                interference_pairs = get_interference_pairs_from_graph(affected_cpes)
-            except Exception:
-                pass
+                interference_pairs = get_interference_pairs(min_persistence_h=0.0)
+                print(f"  {len(interference_pairs)} interference pair(s) found in TypeDB")
+            except Exception as e:
+                print(f"  TypeDB interference query failed: {e}")
 
-            # 6. Run Uplink Intelligence Engine
+            # 6. TypeDB Datalog inference — deterministic decisions
+            inferred = {}
+            try:
+                print("  Running TypeDB Datalog inference (deterministic decisions)...")
+                inferred = get_inferred_decisions()
+                total_inferred = sum(
+                    len(v) for v in inferred.values() if isinstance(v, list)
+                )
+                print(f"  {total_inferred} inference result(s) derived by Datalog rules")
+            except Exception as e:
+                print(f"  TypeDB inference query failed: {e}")
+
+            # 7. Uplink Intelligence Engine (complementary rule-based layer)
             print("  Running ASTRA Uplink Intelligence Engine...")
             uplink_result = run_uplink_engine(canonical_metrics, interference_pairs)
             print(
-                f"  Decisions: {uplink_result['green_auto']} Green / "
-                f"{uplink_result['amber_noc']} Amber / "
-                f"{uplink_result['red_engineering']} Red"
+                f"  Engine decisions: {uplink_result['green_auto']} Green / "
+                f"{uplink_result['amber_noc']} Amber / {uplink_result['red_engineering']} Red"
             )
 
-            # 7. LLM RCA
-            print("  Running Cognitive RCA (LLM advisory)...")
-            rca = run_fwa_rca(valid_events, topology, uplink_result, [])
+            # 8. LLM RCA (explanation only — decisions already determined above)
+            print("  Running LLM RCA (advisory explanation)...")
+            rca = run_fwa_rca(events, topology, inferred, uplink_result)
 
-            # 8. Publish dashboard state
-            publish_dashboard(r, valid_events, uplink_result, rca)
+            # 9. Publish dashboard
+            publish_dashboard(r, events, inferred, uplink_result, rca)
 
-            # 9. Push RCA to notification queue
+            # 10. Push RCA to notification queue
             r.rpush("rca_notifications", rca)
-            print("\n--- ASTRA RCA OUTPUT ---")
+            print("\n--- ASTRA RCA ---")
             print(rca)
 
         time.sleep(2)
 
+
+TYPEDB_HOST_NOTE = "127.0.0.1:1729"
 
 if __name__ == "__main__":
     main()

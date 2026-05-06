@@ -1,8 +1,10 @@
 """
 ASTRA Backend — Flask API
-Exposes FWA-specific endpoints for CPE telemetry ingestion, uplink analysis,
-household QoE diagnostics, and Proof of Outcome Report generation.
-Extends the original Svaya NOC backend with ASTRA FWA layers.
+All persistence goes through TypeDB (no Neo4j, no in-memory dict).
+Datalog inference results are surfaced directly through /uplink/analyze
+and /outcome/report — the knowledge graph does the reasoning.
+
+Spec ref: ASTRA Architecture Spec v1.1
 """
 
 import time
@@ -11,30 +13,30 @@ from flask import Flask, request, jsonify
 import chromadb
 import requests as http_requests
 
-from fwa_mvnl import (
-    normalize, normalize_alarm, align_to_1min,
-    resolve_conflict, metrics_to_dict,
-)
-from fwa_uplink_engine import (
-    run_uplink_engine, InterferencePair,
-    CanonicalUplinkMetrics,
+from fwa_mvnl import normalize, normalize_alarm
+from fwa_uplink_engine import run_uplink_engine
+from fwa_typedb_client import (
+    insert_cpe_telemetry,
+    get_all_uplink_states,
+    get_cpe_uplink_state,
+    get_interference_pairs,
+    get_inferred_decisions,
+    get_household_profiles,
+    get_multi_vendor_summary,
+    update_cpe_status,
+    ping as typedb_ping,
 )
 
 app = Flask(__name__)
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 collection = chroma_client.get_or_create_collection(name="astra_fwa_kb")
 
-# In-memory store for the POC (replace with Redis/TypeDB in production)
-_cpe_telemetry_store: dict[str, CanonicalUplinkMetrics] = {}
-_household_profiles: dict[str, dict] = {}
-_outcome_log: list[dict] = []
-
 
 # ---------------------------------------------------------------------------
-# Utility
+# Utilities
 # ---------------------------------------------------------------------------
 
-def _llm_generate(prompt: str) -> str:
+def _llm(prompt: str) -> str:
     try:
         resp = http_requests.post(
             "http://127.0.0.1:11434/api/generate",
@@ -46,7 +48,7 @@ def _llm_generate(prompt: str) -> str:
         return f"LLM unavailable: {e}"
 
 
-def _rag_context(query: str, n: int = 2) -> str:
+def _rag(query: str, n: int = 2) -> str:
     try:
         results = collection.query(query_texts=[query], n_results=n)
         return "\n".join(doc for sublist in results["documents"] for doc in sublist)
@@ -55,17 +57,27 @@ def _rag_context(query: str, n: int = 2) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Layer 0/1: CPE Telemetry Ingestion (Tier 1 TR-369, Tier 2 Probe)
+# Health check
+# ---------------------------------------------------------------------------
+
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({
+        "status": "ok",
+        "typedb": "reachable" if typedb_ping() else "unreachable",
+        "graph_backend": "TypeDB (Datalog deterministic reasoning)",
+    })
+
+
+# ---------------------------------------------------------------------------
+# Layer 0/1: CPE Telemetry Ingestion
 # POST /cpe/telemetry
+# Accepts TR-369, ASTRA Probe JSON, or any vendor NMS payload.
+# Normalized via MVNL → persisted to TypeDB knowledge graph.
 # ---------------------------------------------------------------------------
 
 @app.route("/cpe/telemetry", methods=["POST"])
 def ingest_cpe_telemetry():
-    """
-    Ingests CPE telemetry from any source (TR-369 USP, ASTRA Probe, RAN NMS).
-    Runs the payload through the MVNL to produce a canonical metric record.
-    Stores the latest per-CPE state for downstream uplink analysis.
-    """
     raw = request.json
     if not raw:
         return jsonify({"error": "Empty payload"}), 400
@@ -75,125 +87,102 @@ def ingest_cpe_telemetry():
     except ValueError as e:
         return jsonify({"error": str(e)}), 422
 
-    # Merge with existing record (higher-confidence/higher-tier wins)
-    existing = _cpe_telemetry_store.get(canonical.cpe_id)
-    if existing:
-        canonical = resolve_conflict(existing, canonical)
-
-    _cpe_telemetry_store[canonical.cpe_id] = canonical
-
-    # Log to outcome tracker
-    _outcome_log.append({
-        "event": "telemetry_ingested",
-        "cpe_id": canonical.cpe_id,
-        "tier": canonical.intelligence_tier,
-        "ts": canonical.timestamp_unix,
-        "confidence": canonical.confidence_score,
-    })
+    try:
+        insert_cpe_telemetry(canonical)
+        storage = "TypeDB"
+    except Exception as e:
+        storage = f"TypeDB write failed: {e}"
 
     return jsonify({
         "status": "accepted",
+        "storage": storage,
         "cpe_id": canonical.cpe_id,
         "intelligence_tier": canonical.intelligence_tier,
         "confidence_score": canonical.confidence_score,
-        "canonical": metrics_to_dict(canonical),
+        "vendor": canonical.vendor,
     })
 
 
 # ---------------------------------------------------------------------------
 # Layer 3: Uplink Analysis
 # POST /uplink/analyze
+# Returns two layers of decisions:
+#   1. TypeDB Datalog inference (deterministic — zero LLM)
+#   2. Uplink Intelligence Engine (rule-based Python layer)
 # ---------------------------------------------------------------------------
 
 @app.route("/uplink/analyze", methods=["POST"])
 def analyze_uplink():
-    """
-    Runs the Uplink Intelligence Engine against all stored CPE metrics
-    (or a subset specified in the request body).
-    Returns a graduated autonomy execution plan (Green/Amber/Red decisions).
-    Spec ref: ASTRA Architecture Spec v1.1, Section 4.4
-    """
     body = request.json or {}
-    cpe_ids = body.get("cpe_ids")  # Optional filter; None = analyze all
+    cpe_ids = body.get("cpe_ids")  # None = analyze all CPEs in TypeDB
 
-    if cpe_ids:
-        metrics = [_cpe_telemetry_store[c] for c in cpe_ids if c in _cpe_telemetry_store]
-    else:
-        metrics = list(_cpe_telemetry_store.values())
+    # Fetch canonical metrics from TypeDB
+    try:
+        metrics = get_all_uplink_states(cpe_ids)
+    except Exception as e:
+        return jsonify({"error": f"TypeDB read failed: {e}"}), 503
 
     if not metrics:
-        return jsonify({"error": "No CPE telemetry available. Ingest data via /cpe/telemetry first."}), 404
+        return jsonify({"error": "No CPE uplink states in TypeDB. Ingest via /cpe/telemetry first."}), 404
 
-    # Align all metrics to the current 1-minute boundary
-    metrics = align_to_1min(metrics, time.time())
+    # Fetch interference pairs from TypeDB graph
+    try:
+        pairs = get_interference_pairs(min_persistence_h=0.0)
+    except Exception:
+        pairs = []
 
-    # Build interference pairs from request (or empty list for now)
-    raw_pairs = body.get("interference_pairs", [])
-    pairs = [
-        InterferencePair(
-            interferer_cpe=p["interferer_cpe"],
-            victim_cpe=p["victim_cpe"],
-            cell_interferer=p.get("cell_interferer", ""),
-            cell_victim=p.get("cell_victim", ""),
-            interference_db=p.get("interference_db", 0.0),
-            persistence_hours=p.get("persistence_hours", 0.0),
-            vendor_interferer=p.get("vendor_interferer", ""),
-            vendor_victim=p.get("vendor_victim", ""),
-        )
-        for p in raw_pairs
-    ]
+    # Layer A: TypeDB Datalog inference (deterministic)
+    try:
+        inferred = get_inferred_decisions()
+    except Exception as e:
+        inferred = {"error": str(e)}
 
-    result = run_uplink_engine(metrics, pairs)
-
-    # Log green decisions as auto-executed outcomes
-    for dec in result["execution_plan"]["auto_execute"]:
-        _outcome_log.append({
-            "event": "auto_remediation",
-            "module": dec["module"],
-            "cpe_id": dec["cpe_id"],
-            "action": dec["action"],
-            "ts": time.time(),
-        })
+    # Layer B: Python Uplink Intelligence Engine
+    engine_result = run_uplink_engine(metrics, pairs)
 
     return jsonify({
         "analyzed_cpes": len(metrics),
-        "summary": {
-            "green_auto": result["green_auto"],
-            "amber_noc": result["amber_noc"],
-            "red_engineering": result["red_engineering"],
+        "graph_backend": "TypeDB (Datalog deterministic reasoning)",
+        "typedb_inference": {
+            "green_auto": len(inferred.get("green_auto", [])),
+            "amber_noc": len(inferred.get("amber_noc", [])),
+            "red_engineering": len(inferred.get("red_engineering", [])),
+            "uplink_audit_required": len(inferred.get("uplink_audit_required", [])),
+            "isolated_cpes": len(inferred.get("isolated_cpes", [])),
+            "decisions": inferred,
         },
-        "execution_plan": result["execution_plan"],
+        "uplink_engine": {
+            "green_auto": engine_result["green_auto"],
+            "amber_noc": engine_result["amber_noc"],
+            "red_engineering": engine_result["red_engineering"],
+            "execution_plan": engine_result["execution_plan"],
+        },
     })
 
 
 # ---------------------------------------------------------------------------
 # Layer 5: Household QoE Diagnostics
 # GET /household/qoe?cpe_id=<id>
-# POST /household/qoe  (batch)
+# POST /household/qoe  (batch — all households in TypeDB)
 # ---------------------------------------------------------------------------
 
-_HOP_PROFILES = {
-    "UPLINK-CONSTRAINED": {"sinr_max": 5.0, "phr_max": 0.0},
-    "THERMAL-LIMITED":    {"thermal": ["THROTTLING", "CRITICAL"]},
-    "INTERFERENCE-BOUND": {"bler_min": 8.0, "sinr_max": 8.0},
-    "CAPACITY-STARVED":   {"ul_min": 5.0, "dl_min": 20.0},
-    "BALANCED":           {},
-    "PREMIUM-TIER":       {"sinr_min": 15.0, "ul_min": 50.0},
-}
+_HOP_RULES = [
+    ("THERMAL-LIMITED",    lambda m: m.thermal_state in ["THROTTLING", "CRITICAL"]),
+    ("UPLINK-CONSTRAINED", lambda m: m.sinr_db is not None and m.sinr_db < 5.0),
+    ("INTERFERENCE-BOUND", lambda m: m.ul_bler_pct is not None and m.ul_bler_pct > 8.0),
+    ("CAPACITY-STARVED",   lambda m: m.ul_throughput_mbps is not None and m.ul_throughput_mbps < 5.0),
+    ("PREMIUM-TIER",       lambda m: m.sinr_db is not None and m.sinr_db >= 15.0
+                                     and (m.ul_throughput_mbps or 0) >= 50.0),
+]
 
 
-def _classify_hop(m: CanonicalUplinkMetrics) -> str:
-    """Classify CPE into a Household Outcome Profile (HOP)."""
-    if m.thermal_state and m.thermal_state in ["THROTTLING", "CRITICAL"]:
-        return "THERMAL-LIMITED"
-    if m.sinr_db is not None and m.sinr_db < 5.0:
-        return "UPLINK-CONSTRAINED"
-    if m.ul_bler_pct is not None and m.ul_bler_pct > 8.0:
-        return "INTERFERENCE-BOUND"
-    if m.ul_throughput_mbps is not None and m.ul_throughput_mbps < 5.0:
-        return "CAPACITY-STARVED"
-    if m.sinr_db is not None and m.sinr_db >= 15.0 and (m.ul_throughput_mbps or 0) >= 50.0:
-        return "PREMIUM-TIER"
+def _classify_hop(m) -> str:
+    for label, rule in _HOP_RULES:
+        try:
+            if rule(m):
+                return label
+        except Exception:
+            pass
     return "BALANCED"
 
 
@@ -203,113 +192,128 @@ def household_qoe_get():
     if not cpe_id:
         return jsonify({"error": "cpe_id query parameter required"}), 400
 
-    m = _cpe_telemetry_store.get(cpe_id)
-    if not m:
-        return jsonify({"error": f"No telemetry for CPE {cpe_id}"}), 404
+    try:
+        m = get_cpe_uplink_state(cpe_id)
+    except Exception as e:
+        return jsonify({"error": f"TypeDB read failed: {e}"}), 503
+
+    if m is None:
+        return jsonify({"error": f"CPE '{cpe_id}' not found in TypeDB"}), 404
 
     hop = _classify_hop(m)
-    _household_profiles[cpe_id] = {"hop": hop, "last_updated": time.time()}
-
     return jsonify({
         "cpe_id": cpe_id,
         "household_outcome_profile": hop,
         "intelligence_tier": m.intelligence_tier,
         "qoe_snapshot": {
-            "sinr_db": m.sinr_db,
-            "rsrp_dbm": m.rsrp_dbm,
-            "rsrq_db": m.rsrq_db,
+            "sinr_db":            m.sinr_db,
+            "rsrp_dbm":           m.rsrp_dbm,
+            "rsrq_db":            m.rsrq_db,
             "ul_throughput_mbps": m.ul_throughput_mbps,
             "dl_throughput_mbps": m.dl_throughput_mbps,
-            "ul_bler_pct": m.ul_bler_pct,
-            "thermal_state": m.thermal_state,
-            "mimo_rank": m.mimo_rank_active,
+            "ul_bler_pct":        m.ul_bler_pct,
+            "power_headroom_db":  m.power_headroom_db,
+            "thermal_state":      m.thermal_state,
+            "mimo_rank":          m.mimo_rank_active,
         },
         "confidence_score": m.confidence_score,
-        "tier_upgrade_recommended": m.intelligence_tier == 1 and hop in [
-            "INTERFERENCE-BOUND", "THERMAL-LIMITED"
-        ],
+        "tier_upgrade_recommended": (
+            m.intelligence_tier == 1 and hop in ["INTERFERENCE-BOUND", "THERMAL-LIMITED"]
+        ),
+        "source": "TypeDB",
     })
 
 
 @app.route("/household/qoe", methods=["POST"])
 def household_qoe_batch():
     body = request.json or {}
-    cpe_ids = body.get("cpe_ids", list(_cpe_telemetry_store.keys()))
+    cpe_ids = body.get("cpe_ids")
+
+    try:
+        metrics = get_all_uplink_states(cpe_ids)
+    except Exception as e:
+        return jsonify({"error": f"TypeDB read failed: {e}"}), 503
+
     profiles = []
-    for cid in cpe_ids:
-        m = _cpe_telemetry_store.get(cid)
-        if not m:
-            continue
+    for m in metrics:
         hop = _classify_hop(m)
-        _household_profiles[cid] = {"hop": hop, "last_updated": time.time()}
         profiles.append({
-            "cpe_id": cid,
+            "cpe_id":                   m.cpe_id,
+            "vendor":                   m.vendor,
             "household_outcome_profile": hop,
-            "sinr_db": m.sinr_db,
-            "ul_throughput_mbps": m.ul_throughput_mbps,
-            "thermal_state": m.thermal_state,
-            "confidence_score": m.confidence_score,
-            "intelligence_tier": m.intelligence_tier,
+            "sinr_db":                  m.sinr_db,
+            "ul_throughput_mbps":       m.ul_throughput_mbps,
+            "thermal_state":            m.thermal_state,
+            "confidence_score":         m.confidence_score,
+            "intelligence_tier":        m.intelligence_tier,
         })
-    return jsonify({"household_count": len(profiles), "profiles": profiles})
+
+    return jsonify({"household_count": len(profiles), "profiles": profiles, "source": "TypeDB"})
 
 
 # ---------------------------------------------------------------------------
 # Layer 6: Proof of Outcome Report
 # GET /outcome/report
+# Queries TypeDB for all households, Datalog-inferred decisions, vendor stats.
 # ---------------------------------------------------------------------------
 
 @app.route("/outcome/report", methods=["GET"])
 def outcome_report():
-    """
-    Generates the Proof of Outcome Report.
-    Shows counterfactual value: what ASTRA autonomous interventions delivered.
-    Spec ref: ASTRA Architecture Spec v1.1, Section 4.7
-    """
-    total_cpes = len(_cpe_telemetry_store)
-    hop_counts: dict[str, int] = {}
-    churn_risk_cpes = []
-    tier_breakdown = {1: 0, 2: 0, 3: 0}
+    try:
+        hh_profiles  = get_household_profiles()
+        inferred      = get_inferred_decisions()
+        vendor_summary = get_multi_vendor_summary()
+        all_metrics   = get_all_uplink_states()
+    except Exception as e:
+        return jsonify({"error": f"TypeDB read failed: {e}"}), 503
 
-    for cpe_id, m in _cpe_telemetry_store.items():
+    # HOP distribution
+    hop_counts: dict[str, int] = {}
+    tier_counts = {1: 0, 2: 0, 3: 0}
+    for m in all_metrics:
         hop = _classify_hop(m)
         hop_counts[hop] = hop_counts.get(hop, 0) + 1
-        tier_breakdown[m.intelligence_tier] = tier_breakdown.get(m.intelligence_tier, 0) + 1
-        if m.ul_bler_pct and m.ul_bler_pct > 10.0:
-            churn_risk_cpes.append(cpe_id)
+        tier_counts[m.intelligence_tier] = tier_counts.get(m.intelligence_tier, 0) + 1
 
-    auto_events = [e for e in _outcome_log if e.get("event") == "auto_remediation"]
-    tier1_upgrade_candidates = [
-        cpe_id for cpe_id, prof in _household_profiles.items()
-        if prof.get("hop") in ["INTERFERENCE-BOUND", "THERMAL-LIMITED"]
-        and _cpe_telemetry_store.get(cpe_id, CanonicalUplinkMetrics("", "", "", 0)).intelligence_tier == 1
+    # Tier-upgrade candidates (Tier 1 CPEs with problematic HOPs)
+    upgrade_candidates = [
+        m.cpe_id for m in all_metrics
+        if m.intelligence_tier == 1 and _classify_hop(m) in ["INTERFERENCE-BOUND", "THERMAL-LIMITED"]
     ]
 
     report = {
         "report_type": "ASTRA FWA Proof of Outcome Report",
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "observation_period_days": 30,
-        "total_cpes_monitored": total_cpes,
+        "graph_backend": "TypeDB (Datalog deterministic reasoning, no Neo4j)",
+        "total_cpes_monitored": len(all_metrics),
+        "total_households": len(hh_profiles),
         "household_outcome_profiles": hop_counts,
         "cpe_intelligence_tier_breakdown": {
-            "tier_1_standards_based": tier_breakdown.get(1, 0),
-            "tier_2_astra_probe": tier_breakdown.get(2, 0),
-            "tier_3_on_device_sdk": tier_breakdown.get(3, 0),
+            "tier_1_standards_based_tr369": tier_counts.get(1, 0),
+            "tier_2_astra_probe":           tier_counts.get(2, 0),
+            "tier_3_on_device_sdk":         tier_counts.get(3, 0),
         },
-        "uplink_performance": {
-            "households_at_churn_risk": len(churn_risk_cpes),
-            "churn_risk_cpe_ids": churn_risk_cpes,
-            "auto_remediations_executed": len(auto_events),
+        "datalog_inference_summary": {
+            "green_auto_actions":     len(inferred.get("green_auto", [])),
+            "amber_noc_actions":      len(inferred.get("amber_noc", [])),
+            "red_engineering_actions": len(inferred.get("red_engineering", [])),
+            "uplink_audit_required":  len(inferred.get("uplink_audit_required", [])),
+            "isolated_cpes":          len(inferred.get("isolated_cpes", [])),
         },
+        "multi_vendor_summary": vendor_summary,
         "tier_upgrade_recommendations": {
-            "tier1_to_tier2_candidates": len(tier1_upgrade_candidates),
-            "candidate_cpe_ids": tier1_upgrade_candidates,
-            "rationale": "Households in INTERFERENCE-BOUND or THERMAL-LIMITED profiles gain measurable diagnostic and optimization value from ASTRA Probe (Tier 2) deployment.",
-            "estimated_probe_cost": f"${15 * len(tier1_upgrade_candidates)}–${25 * len(tier1_upgrade_candidates)} hardware (at scale)",
-        },
-        "multi_vendor_efficiency": {
-            "vendors_normalized": list({m.vendor for m in _cpe_telemetry_store.values()}),
-            "mvnl_translations": len(_outcome_log),
+            "tier1_to_tier2_candidates": len(upgrade_candidates),
+            "candidate_cpe_ids": upgrade_candidates,
+            "rationale": (
+                "INTERFERENCE-BOUND and THERMAL-LIMITED CPEs gain measurable diagnostic "
+                "value from ASTRA Probe (Tier 2): deep Wi-Fi diagnostics, application-layer "
+                "QoE measurement, and LTE-fallback Death Rattle forensics."
+            ),
+            "estimated_probe_cost": (
+                f"${15 * len(upgrade_candidates)}–${25 * len(upgrade_candidates)} "
+                f"hardware (at scale, {len(upgrade_candidates)} units)"
+            ),
         },
     }
     return jsonify(report)
@@ -325,92 +329,82 @@ def mvnl_normalize_alarm():
     raw = request.json
     if not raw:
         return jsonify({"error": "Empty payload"}), 400
-    canonical = normalize_alarm(raw)
+    ca = normalize_alarm(raw)
     return jsonify({
-        "alarm_id": canonical.alarm_id,
-        "astra_category": canonical.astra_category,
-        "severity": canonical.severity,
-        "source_ne": canonical.source_ne,
-        "vendor": canonical.vendor,
-        "description": canonical.description,
-        "confidence_score": canonical.confidence_score,
-        "raw_code": canonical.raw_code,
+        "alarm_id":       ca.alarm_id,
+        "astra_category": ca.astra_category,
+        "severity":       ca.severity,
+        "source_ne":      ca.source_ne,
+        "vendor":         ca.vendor,
+        "description":    ca.description,
+        "confidence_score": ca.confidence_score,
+        "raw_code":       ca.raw_code,
     })
 
 
 # ---------------------------------------------------------------------------
-# Original Svaya endpoints (retained + updated for ASTRA FWA context)
+# Original Svaya endpoints — updated for ASTRA FWA context
 # ---------------------------------------------------------------------------
 
 @app.route("/analyze_alarm", methods=["POST"])
 def analyze_alarm():
-    """
-    Cross-vendor FWA alarm correlation using RAG + LLM.
-    Normalizes incoming alarms through MVNL before analysis.
-    """
     data = request.json
     raw_alarms = data.get("alarms", [])
 
-    # Normalize each alarm through MVNL
     normalized = []
     for a in raw_alarms:
         if isinstance(a, dict):
             try:
                 ca = normalize_alarm(a)
-                normalized.append(f"[{ca.vendor}] [{ca.astra_category}/{ca.severity}] {ca.description}")
+                normalized.append(
+                    f"[{ca.vendor}][{ca.astra_category}/{ca.severity}] {ca.description}"
+                )
             except Exception:
                 normalized.append(str(a))
         else:
             normalized.append(str(a))
 
-    storm_summary = " ".join(normalized)
-    context = _rag_context(storm_summary)
-
+    context = _rag(" ".join(normalized))
     prompt = f"""
 You are ASTRA, the FWA Autonomous RAN Assurance AI.
-Analyze this multi-vendor FWA alarm storm. All alarms have been normalized to ASTRA canonical format.
+Analyze this multi-vendor FWA alarm storm. All alarms are in ASTRA canonical format.
 
 Normalized Alarm Storm:
 {chr(10).join(normalized)}
 
-FWA Knowledge Base Context:
+FWA Knowledge Base:
 {context}
 
 Task:
-1. Identify the single Root Cause. State which FWA uplink challenge is involved
-   (Power Splitting / UL-DL Asymmetry / Thermal Stress / Static Interference).
-2. List the affected households (CPE IDs if available).
-3. Recommend the remediation action and its autonomy tier (Green/Amber/Red).
-4. State confidence score and cite the knowledge base match if relevant.
+1. Identify the Root Cause. State which FWA uplink challenge:
+   (a) Power Splitting/Rank Dilemma  (b) UL/DL Coverage Asymmetry
+   (c) High PAPR/Thermal Stress      (d) Static Inter-Cell Interference
+2. List affected CPE IDs and households.
+3. Recommend action and its autonomy tier (Green/Amber/Red).
+4. Confidence score and knowledge base citation.
 """
-    return jsonify({"analysis": _llm_generate(prompt)})
+    return jsonify({"analysis": _llm(prompt)})
 
 
 @app.route("/tmf921/intent", methods=["POST"])
 def handle_tmf921_intent():
-    """TM Forum TMF921 Intent Management API — now FWA-aware."""
     data = request.json
-    intent_id = data.get("id", "Unknown_Intent")
+    intent_id = data.get("id", "Unknown")
     expectations = data.get("intentExpectation", [])
     contexts = data.get("intentContext", [])
 
-    target_summary = []
-    for exp in expectations:
-        for target in exp.get("expectationTarget", []):
-            target_summary.append(
-                f"{target.get('targetName')} should be {target.get('targetCondition')} "
-                f"{target.get('targetValue')} {target.get('unit')}"
-            )
-
+    target_summary = [
+        f"{t.get('targetName')} should be {t.get('targetCondition')} "
+        f"{t.get('targetValue')} {t.get('unit')}"
+        for exp in expectations for t in exp.get("expectationTarget", [])
+    ]
     context_summary = [
-        f"{ctx.get('contextAttribute')}: {ctx.get('contextValue')}" for ctx in contexts
+        f"{c.get('contextAttribute')}: {c.get('contextValue')}" for c in contexts
     ]
 
-    kb_context = _rag_context(" ".join(target_summary + context_summary))
-
+    kb_context = _rag(" ".join(target_summary + context_summary))
     prompt = f"""
 You are ASTRA, the TMF921 Intent Handler for FWA autonomous operations.
-Translate this operator intent into FWA-specific network parameter changes.
 
 Intent ID: {intent_id}
 Targets: {chr(10).join(target_summary)}
@@ -418,16 +412,15 @@ Context: {chr(10).join(context_summary)}
 Knowledge Base: {kb_context}
 
 Task:
-1. Map each target to an ASTRA FWA optimization action (uplink rank, thermal management,
-   interference nulling, or capacity management).
-2. For each action, specify its autonomy tier (Green=auto / Amber=NOC / Red=Engineering).
-3. Output the MOP (Method of Procedure) with vendor-agnostic parameters.
-4. Flag any actions that require CPE intelligence tier upgrade to execute optimally.
+1. Map each target to an ASTRA FWA action (uplink rank, thermal, interference nulling, capacity).
+2. Autonomy tier for each action (Green=auto / Amber=NOC / Red=Engineering).
+3. Output vendor-agnostic MOP parameters.
+4. Flag actions requiring CPE intelligence tier upgrade.
 """
 
     try:
-        llm_response = _llm_generate(prompt)
-        _push_telegram(f"TMF921 Intent `{intent_id}` received.\n\n*Action Plan:*\n{llm_response}")
+        llm_response = _llm(prompt)
+        _push_telegram(f"TMF921 Intent `{intent_id}` received.\n*Plan:*\n{llm_response}")
         return jsonify({
             "intentId": intent_id,
             "handlingState": "Acknowledged",
@@ -439,11 +432,10 @@ Task:
 
 @app.route("/tmf921/feedback", methods=["POST"])
 def feedback():
-    """RLNF feedback loop — stores lessons in the FWA knowledge base."""
     data = request.json
     cell_id = data.get("cell_id", "Unknown")
-    intent = data.get("intent", "Unknown Intent")
-    action_taken = data.get("action_taken", "Unknown Action")
+    intent = data.get("intent", "")
+    action_taken = data.get("action_taken", "")
     success = data.get("success", False)
     outcome_notes = data.get("outcome_notes", "")
 
@@ -451,11 +443,7 @@ def feedback():
     lesson = (
         f"FWA LESSON ({status}) — Site: {cell_id} | Intent: {intent} | "
         f"Action: {action_taken} | Outcome: {outcome_notes}. "
-    )
-    lesson += (
-        "Prioritize this approach for similar FWA uplink conditions."
-        if success
-        else "Avoid this approach. Try alternative uplink optimization strategy."
+        + ("Prioritize for similar FWA conditions." if success else "Avoid — try alternative.")
     )
 
     memory_id = f"fwa_lesson_{uuid.uuid4().hex[:8]}"
@@ -468,16 +456,15 @@ def feedback():
 
 
 # ---------------------------------------------------------------------------
-# Telegram notifier (retained from Svaya)
+# Telegram notifier
 # ---------------------------------------------------------------------------
 
 def _push_telegram(message: str):
     BOT_TOKEN = "8662847867:AAENJtmV-8HwGKCRLn8FGOqAdlPevlYV7dU"
     CHAT_ID = "7041322342"
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     try:
         http_requests.post(
-            url,
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
             json={"chat_id": CHAT_ID, "text": f"ASTRA FWA ALERT\n{message}", "parse_mode": "Markdown"},
             timeout=5,
         )

@@ -5,7 +5,6 @@ requests
 networkx
 matplotlib
 python-dotenv
-neo4j
 redis
 typedb-driver
 pandas
