@@ -63,7 +63,7 @@ class _Report(FPDF):
         self.set_xy(10, 2)
         self.set_text_color(*_C["white"])
         self.set_font("Helvetica", "B", 9)
-        self.cell(0, 8, "ASTRA Network Autonomy Assessment  |  Svaya", align="L")
+        self.cell(0, 8, "Network Autonomy Assessment  |  Svaya", align="L")
         self.set_text_color(*_C["text_dark"])
         self.ln(14)
 
@@ -222,7 +222,7 @@ def generate_pdf(
         "This report benchmarks your network operations against the TM Forum Autonomous Networks "
         "framework (IG1218 v2.2.0 / IG1252 v1.2.0). It scores your current autonomy level across "
         "the five cognitive dimensions defined in IG1252 (Intent, Awareness, Analysis, Decision, "
-        "Execution), identifies gaps where Svaya ASTRA can accelerate your automation journey, and "
+        "Execution), identifies gaps where Svaya can accelerate your automation journey, and "
         "(where consented) summarises the results of a live network readiness probe.",
     )
     pdf.set_text_color(*_C["text_dark"])
@@ -322,14 +322,14 @@ def generate_pdf(
         pdf.add_page()
         _section_title(pdf, "Live Network Readiness Probe Results")
 
-        readiness = probe_result.get("astra_readiness", "")
+        readiness = probe_result.get("nms_readiness", "")
         summary   = probe_result.get("summary", "")
         r_color   = _READINESS_COLORS.get(readiness, _C["text_mid"])
 
         pdf.set_fill_color(*r_color)
         pdf.set_text_color(*_C["white"])
         pdf.set_font("Helvetica", "B", 11)
-        pdf.cell(0, 8, f"ASTRA Readiness: {readiness}", fill=True,
+        pdf.cell(0, 8, f"NMS Readiness: {readiness}", fill=True,
                  new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf.set_text_color(*_C["text_dark"])
         pdf.set_font("Helvetica", "", 9)
@@ -358,21 +358,21 @@ def generate_pdf(
     # Final page — Next steps
     # -----------------------------------------------------------------------
     pdf.add_page()
-    _section_title(pdf, "Your Next Steps with Svaya ASTRA")
+    _section_title(pdf, "Your Next Steps with Svaya")
 
     steps = [
         ("1", "Book a 30-minute demo",
-         "See ASTRA running against a live multi-vendor FWA lab environment. "
-         "We'll walk through how ASTRA maps to your specific vendor mix and coverage challenges."),
+         "See Svaya running against a live multi-vendor RAN, Core, and Transport environment. "
+         "We'll walk through how Svaya maps to your specific vendor mix and autonomy gaps."),
         ("2", "Request a Proof-of-Value scoping call",
          "Our solutions team will review your gap analysis and propose a 30-day PoV "
-         "with defined KPIs — typical targets: ≥15% UL throughput uplift, ≥20% NOC ticket reduction."),
-        ("3", "Enable TR-369 USP on your ACS",
-         "Svaya's Tier 1 integration requires no on-CPE changes — only TR-369 on your ACS. "
-         "We'll provide a step-by-step guide for your vendor."),
-        ("4", "Review the TM Forum IG1218 baseline",
+         "with defined KPIs — typical targets: ≥20% fault MTTR reduction, ≥30% NOC ticket automation."),
+        ("3", "Connect your NMS/OSS",
+         "Svaya integrates via NETCONF/YANG, vendor REST APIs, or TR-369 — "
+         "no agents required on network elements. We'll provide a step-by-step guide."),
+        ("4", "TM Forum IG1218 Assessment Workshop",
          "Our team can run a full TM Forum-aligned autonomy assessment workshop "
-         "(half-day, remote) to validate the scores in this report and build a roadmap."),
+         "(half-day, remote) to validate the scores in this report and build a multi-year roadmap."),
     ]
 
     for num, title, body in steps:
@@ -392,7 +392,7 @@ def generate_pdf(
     pdf.ln(6)
     pdf.set_font("Helvetica", "B", 10)
     pdf.set_text_color(*_C["svaya_blue"])
-    pdf.cell(0, 7, "Contact: hello@svaya.io  |  svaya.io/astra  |  +44 20 0000 0000",
+    pdf.cell(0, 7, "Contact: hello@svaya.io  |  svaya.io  |  +44 20 0000 0000",
              align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
     return bytes(pdf.output())
@@ -405,7 +405,7 @@ def _text_fallback(
     probe_result: Optional[dict],
 ) -> bytes:
     lines = [
-        "SVAYA ASTRA NETWORK AUTONOMY ASSESSMENT",
+        "SVAYA NETWORK AUTONOMY ASSESSMENT",
         f"Company: {company}  |  Contact: {contact_name}",
         f"Overall Maturity: L{scores.get('overall', 0):.1f} — {scores.get('level', '')}",
         "",

@@ -1,5 +1,5 @@
 """
-Base skill abstraction for the ASTRA assessment assistant.
+Base skill abstraction for the Svaya assessment assistant.
 
 Each skill is a self-contained assessment covering one TM Forum use case.
 Skills define sub-scenarios, criteria, options, and scoring logic.

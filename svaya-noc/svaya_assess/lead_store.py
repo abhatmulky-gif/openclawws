@@ -91,7 +91,7 @@ def save_lead(
     init_db()
     lead_id = str(uuid.uuid4())
     now = int(time.time())
-    readiness = (probe_result or {}).get("astra_readiness")
+    readiness = (probe_result or {}).get("nms_readiness")
     overall = scores.get("overall")
 
     with _get_conn() as conn:
@@ -181,7 +181,7 @@ def _fire_webhook(
             "domains": scores.get("domains", {}),
         },
         "network_readiness": readiness,
-        "utm_source": "astra_assessment",
+        "utm_source": "svaya_assessment",
     }
     headers = {"Content-Type": "application/json"}
     if CRM_WEBHOOK_SECRET:

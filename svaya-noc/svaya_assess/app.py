@@ -1,5 +1,5 @@
 """
-Svaya ASTRA Assessment Tool — Flask application.
+Svaya Network Autonomy Assessment — Flask application.
 Standalone marketing tool: TM Forum L0–L5 survey + conversational assistant + live probe.
 """
 
@@ -189,7 +189,7 @@ def survey_submit():
                 report = run_probe(nms_endpoint, nms_vendor, pm_user, pm_pass)
                 probe_result = probe_to_dict(report)
             except Exception as exc:
-                probe_result = {"error": str(exc), "astra_readiness": "UNREACHABLE"}
+                probe_result = {"error": str(exc), "nms_readiness": "UNREACHABLE"}
 
     lead_id = save_lead(
         company=company,
@@ -296,7 +296,7 @@ def live_probe():
         report = run_probe(endpoint, vendor, pm_user, pm_pass)
         return probe_to_dict(report)
     except Exception as exc:
-        return {"error": str(exc), "astra_readiness": "UNREACHABLE"}, 500
+        return {"error": str(exc), "nms_readiness": "UNREACHABLE"}, 500
 
 
 # ---------------------------------------------------------------------------

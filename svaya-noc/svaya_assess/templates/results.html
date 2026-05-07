@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Your Assessment Results | Svaya ASTRA{% endblock %}
+{% block title %}Your Assessment Results | Svaya{% endblock %}
 
 {% block content %}
 <div class="max-w-4xl mx-auto px-4 py-10">
@@ -87,7 +87,7 @@
   <section class="bg-white rounded-2xl shadow p-8 mb-8">
     <h2 class="text-xl font-bold text-svaya-blue mb-1">Live Network Readiness Probe</h2>
 
-    {% set rc = probe.astra_readiness %}
+    {% set rc = probe.nms_readiness %}
     {% set rc_colors = {
       'READY':        '#22C55E',
       'PARTIAL':      '#F59E0B',
@@ -148,7 +148,7 @@
         <span class="text-svaya-teal font-black text-lg">1</span>
         <div>
           <p class="font-semibold">Book a 30-minute demo</p>
-          <p class="text-gray-500">See ASTRA running against a live multi-vendor FWA lab.</p>
+          <p class="text-gray-500">See Svaya running against a live multi-vendor RAN/Core/Transport lab.</p>
         </div>
       </div>
       <div class="flex gap-3">
@@ -162,7 +162,7 @@
         <span class="text-svaya-teal font-black text-lg">3</span>
         <div>
           <p class="font-semibold">Enable TR-369 USP on your ACS</p>
-          <p class="text-gray-500">Tier 1 integration — no on-CPE changes required.</p>
+          <p class="text-gray-500">Integrate with your NMS/OSS — NETCONF, REST, or vendor API — no on-device agent required.</p>
         </div>
       </div>
       <div class="flex gap-3">

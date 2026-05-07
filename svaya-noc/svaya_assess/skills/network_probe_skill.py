@@ -15,7 +15,7 @@ class NetworkProbeSkill(BaseSkill):
     name        = "Live Network Readiness Probe"
     description = (
         "Performs five non-destructive read-only checks against your NMS "
-        "and reports ASTRA readiness. Requires your NMS endpoint URL and "
+        "and reports NMS integration readiness. Requires your NMS endpoint URL and "
         "optional PM API credentials. No changes are made to your network."
     )
     icon = "🔍"
@@ -62,7 +62,7 @@ class NetworkProbeSkill(BaseSkill):
     def get_intro_message(self) -> str:
         return (
             "## Live Network Readiness Probe\n\n"
-            "ASTRA will perform five read-only checks against your NMS endpoint. "
+            "Svaya will perform five read-only checks against your NMS endpoint. "
             "This takes approximately 30 seconds. No configuration changes are made.\n\n"
             "You will need:\n"
             "- Your NMS base URL (e.g., `https://nms.yournetwork.com`)\n"

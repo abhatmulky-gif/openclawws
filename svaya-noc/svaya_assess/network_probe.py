@@ -1,5 +1,5 @@
 """
-ASTRA Network Readiness Probe
+Svaya Network Readiness Probe
 Performs non-destructive, consent-gated checks against an operator's NMS.
 All checks are read-only. TLS errors are caught and reported, not fatal.
 Total probe time budget: ~30 seconds (5s timeout per check).
@@ -125,7 +125,7 @@ class ProbeReport:
     tr369_usp: Optional[CheckResult] = None
     pm_sample: Optional[CheckResult] = None
     summary: str = ""
-    astra_readiness: str = ""   # READY | PARTIAL | NEEDS_CONFIG | UNREACHABLE
+    nms_readiness: str = ""   # READY | PARTIAL | NEEDS_CONFIG | UNREACHABLE
 
 
 # ---------------------------------------------------------------------------
@@ -332,7 +332,7 @@ def _check_pm_sample(base_url: str, vendor: str, username: str, password: str) -
                         detail=(
                             f"PM counter endpoint accessible at {path}. "
                             f"Sample fields: {sample_keys or 'data received'}. "
-                            "ASTRA MVNL can normalise this vendor's PM format."
+                            "Svaya can normalise this vendor's PM format."
                         ),
                         data={"path": path, "sample_keys": sample_keys},
                     )
@@ -361,10 +361,10 @@ def _check_pm_sample(base_url: str, vendor: str, username: str, password: str) -
 
 
 # ---------------------------------------------------------------------------
-# ASTRA readiness assessment
+# NMS readiness assessment
 # ---------------------------------------------------------------------------
 
-def _assess_astra_readiness(report: ProbeReport) -> str:
+def _assess_nms_readiness(report: ProbeReport) -> str:
     scores = {
         "ok": 3, "warn": 1, "fail": 0, "skip": 0
     }
@@ -384,9 +384,9 @@ def _assess_astra_readiness(report: ProbeReport) -> str:
 
 
 _READINESS_LABELS = {
-    "READY":        "ASTRA can connect to your NMS with minimal configuration.",
-    "PARTIAL":      "ASTRA can connect, but some data sources need configuration (e.g., VPN, API credentials).",
-    "NEEDS_CONFIG": "Your NMS is reachable but API access needs to be enabled before ASTRA integration.",
+    "READY":        "Svaya can connect to your NMS with minimal configuration.",
+    "PARTIAL":      "Svaya can connect, but some data sources need configuration (e.g., VPN, API credentials).",
+    "NEEDS_CONFIG": "Your NMS is reachable but API access needs to be enabled before Svaya integration.",
     "UNREACHABLE":  "We couldn't reach the endpoint. Verify the URL, firewall rules, and network access.",
 }
 
@@ -425,8 +425,8 @@ def run_probe(
     report.pm_sample    = _check_pm_sample(endpoint, vendor, pm_username, pm_password)
 
     # Readiness summary
-    report.astra_readiness = _assess_astra_readiness(report)
-    report.summary = _READINESS_LABELS[report.astra_readiness]
+    report.nms_readiness = _assess_nms_readiness(report)
+    report.summary = _READINESS_LABELS[report.nms_readiness]
 
     return report
 
@@ -445,7 +445,7 @@ def probe_to_dict(report: ProbeReport) -> dict:
     return {
         "endpoint": report.endpoint,
         "vendor": report.vendor,
-        "astra_readiness": report.astra_readiness,
+        "nms_readiness": report.nms_readiness,
         "summary": report.summary,
         "reachability":  cr(report.reachability),
         "tls_info":      cr(report.tls_info),

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}ASTRA Assessment Assistant | Svaya{% endblock %}
+{% block title %}Assessment Assistant | Svaya{% endblock %}
 
 {% block head_extra %}
 <style>
@@ -299,7 +299,7 @@ function renderProbeResult(probe) {
   const readinessColors = {
     READY: '#22C55E', PARTIAL: '#F59E0B', NEEDS_CONFIG: '#F97316', UNREACHABLE: '#EF4444'
   };
-  const rc = probe.astra_readiness || 'UNREACHABLE';
+  const rc = probe.nms_readiness || 'UNREACHABLE';
   const col = readinessColors[rc] || '#94A3B8';
   const checks = ['reachability','tls_info','nms_api','tr369_usp','pm_sample']
     .map(k => probe[k] || null)

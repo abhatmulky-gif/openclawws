@@ -23,7 +23,7 @@ from bot.session import (
 from bot.skill_registry import get_skill, skill_menu
 from lead_store import save_lead
 from network_probe import run_probe, probe_to_dict
-from survey_engine import score_answers     # for FWA autonomy quick-score fallback
+from survey_engine import score_answers     # quick-score fallback for survey skill
 
 # ---------------------------------------------------------------------------
 # Optional LLM integration
@@ -110,7 +110,7 @@ def _assistant(content: str, **extra) -> dict:
 def _welcome_message() -> dict:
     skills = skill_menu()
     return _assistant(
-        "## Welcome to the ASTRA Network Autonomy Assessment\n\n"
+        "## Welcome to the Svaya Network Autonomy Assessment\n\n"
         "I'll guide you through a structured assessment of your network's "
         "automation maturity — aligned with TM Forum IG1218 v2.2.0 and IG1252 v1.2.0.\n\n"
         "**Select an assessment to begin:**",
@@ -310,7 +310,7 @@ def handle_probe_inputs(sid: str, inputs: dict) -> list:
         report = run_probe(endpoint, vendor, pm_user, pm_pass)
         result = probe_to_dict(report)
     except Exception as e:
-        result = {"error": str(e), "astra_readiness": "UNREACHABLE", "summary": str(e)}
+        result = {"error": str(e), "nms_readiness": "UNREACHABLE", "summary": str(e)}
 
     sess = get_session(sid)
     if sess:

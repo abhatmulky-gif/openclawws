@@ -1,5 +1,5 @@
 """
-ASTRA Network Autonomy Assessment — Survey Engine
+Svaya Network Autonomy Assessment — Survey Engine
 Aligned with TM Forum IG1218 v2.2.0 and IG1252 v1.2.0 (Autonomous Networks
 Levels Evaluation Methodology). Assesses across the five cognitive capability
 dimensions that TM Forum uses to evaluate autonomous network maturity:
@@ -481,7 +481,7 @@ LEVEL_COLORS = {
 
 SVAYA_CAPABILITIES = {
     "intent": {
-        "name": "ASTRA Intent & Policy Engine",
+        "name": "Svaya Intent & Policy Engine",
         "description": (
             "Translates high-level business objectives — QoE targets, energy limits, "
             "churn-risk thresholds — into vendor-specific network parameters across "
@@ -506,7 +506,7 @@ SVAYA_CAPABILITIES = {
     "analysis": {
         "name": "Cross-Domain RCA Engine (Datalog Deterministic Reasoning)",
         "description": (
-            "ASTRA's reasoning engine uses Datalog inference rules (TypeDB) to trace "
+            "Svaya's reasoning engine uses Datalog inference rules (TypeDB) to trace "
             "root cause across RAN, core, and transport without LLM uncertainty. "
             "Covers 2G/3G/4G/5G failure modes, core session drop analysis, transport "
             "path degradation, and cross-domain cascading faults. Every decision is "
@@ -530,7 +530,7 @@ SVAYA_CAPABILITIES = {
     "execution": {
         "name": "Multi-Vendor Normalisation Layer + Zero-Touch Orchestration",
         "description": (
-            "ASTRA's MVNL provides vendor-agnostic execution adapters for Ericsson ENM, "
+            "Svaya's MVNL provides vendor-agnostic execution adapters for Ericsson ENM, "
             "Nokia NetAct, Samsung OSS, Huawei iMaster NCE, and open-source OSS/BSS. "
             "Zero-touch provisioning via ZTP, NETCONF/YANG, and TR-369 USP covers "
             "2G/3G/4G/5G RAN, core VNFs/CNFs, and transport elements equally."
