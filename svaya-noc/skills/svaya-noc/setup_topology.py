@@ -1,68 +1,75 @@
+"""
+ASTRA FWA Setup Script
+Initialises the TypeDB knowledge graph and verifies Redis connectivity.
+Neo4j has been removed entirely — TypeDB is the sole graph backend.
+
+Run this once before starting the ASTRA engine or backend:
+  python setup_topology.py
+"""
+
 import os
+import sys
 import redis
-from neo4j import GraphDatabase
 from dotenv import load_dotenv
 
-# Load from the same directory
 env_path = os.path.join(os.path.dirname(__file__), 'svaya-poc.env')
 load_dotenv(env_path)
 
 REDIS_URL = os.getenv('REDIS_URL')
-NEO4J_URI = os.getenv('NEO4J_URI')
-NEO4J_USER = os.getenv('NEO4J_USER')
-NEO4J_PASSWORD = os.getenv('NEO4J_PASSWORD')
+
+# Import TypeDB setup from the project root
+_ROOT = os.path.join(os.path.dirname(__file__), "../..")
+sys.path.insert(0, _ROOT)
+
+from topology_typedb import setup_typedb, TYPEDB_HOST, DB_NAME
+from fwa_typedb_client import ping as typedb_ping
+
 
 def test_redis():
     print("Testing Redis connection...")
+    if not REDIS_URL:
+        print("  [SKIP] REDIS_URL not set in svaya-poc.env")
+        return
     try:
         r = redis.from_url(REDIS_URL)
         r.ping()
-        print("✅ Redis connection successful!")
+        print("  Redis: connected")
     except Exception as e:
-        print(f"❌ Redis connection failed: {e}")
+        print(f"  Redis: connection failed — {e}")
 
-def setup_neo4j():
-    print("\nTesting Neo4j and setting up topology...")
+
+def setup_all(recreate: bool = True):
+    print("=" * 55)
+    print("ASTRA FWA Setup")
+    print(f"Graph Backend: TypeDB @ {TYPEDB_HOST}  (db: {DB_NAME})")
+    print("=" * 55)
+    print()
+
+    # 1. Redis
+    test_redis()
+    print()
+
+    # 2. TypeDB — schema + pilot data
     try:
-        driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
-        driver.verify_connectivity()
-        print("✅ Neo4j connection successful!")
-        
-        with driver.session() as session:
-            print("Clearing existing graph...")
-            session.run("MATCH (n) DETACH DELETE n")
-            
-            print("Building Cisco Transport Network...")
-            # Core and Aggregation layer
-            session.run("CREATE (c:Equipment {id: 'CISCO-CORE-1', vendor: 'Cisco', type: 'Core Router'})")
-            session.run("CREATE (a1:Equipment {id: 'CISCO-ASR-1', vendor: 'Cisco', type: 'Aggregation Router'})")
-            session.run("CREATE (a2:Equipment {id: 'CISCO-ASR-2', vendor: 'Cisco', type: 'Aggregation Router'})")
-            
-            session.run("MATCH (a1:Equipment {id: 'CISCO-ASR-1'}), (c:Equipment {id: 'CISCO-CORE-1'}) CREATE (a1)-[:UPLINK]->(c)")
-            session.run("MATCH (a2:Equipment {id: 'CISCO-ASR-2'}), (c:Equipment {id: 'CISCO-CORE-1'}) CREATE (a2)-[:UPLINK]->(c)")
-            
-            print("Deploying 5 Ericsson gNodeBs to CISCO-ASR-1...")
-            for i in range(1, 6):
-                session.run(f"CREATE (g:Equipment {{id: 'ERIC-gNB-{i}', vendor: 'Ericsson', type: 'gNodeB'}})")
-                session.run(f"MATCH (g:Equipment {{id: 'ERIC-gNB-{i}'}}), (a:Equipment {{id: 'CISCO-ASR-1'}}) CREATE (g)-[:BACKHAUL]->(a)")
-                
-            print("Deploying 5 Nokia gNodeBs to CISCO-ASR-2...")
-            for i in range(1, 6):
-                session.run(f"CREATE (g:Equipment {{id: 'NOK-gNB-{i}', vendor: 'Nokia', type: 'gNodeB'}})")
-                session.run(f"MATCH (g:Equipment {{id: 'NOK-gNB-{i}'}}), (a:Equipment {{id: 'CISCO-ASR-2'}}) CREATE (g)-[:BACKHAUL]->(a)")
-                
-        print("\n✅ Topology successfully injected into Neo4j:")
-        print("  - 1x Cisco Core Router")
-        print("  - 2x Cisco ASR Aggregation Routers")
-        print("  - 5x Ericsson gNodeBs (connected to ASR-1)")
-        print("  - 5x Nokia gNodeBs (connected to ASR-2)")
-        
+        setup_typedb(recreate=recreate)
     except Exception as e:
-        print(f"❌ Neo4j setup failed: {e}")
-    finally:
-        if 'driver' in locals():
-            driver.close()
+        print(f"\nTypeDB setup failed: {e}")
+        print(f"Make sure TypeDB Core is running on {TYPEDB_HOST}")
+        sys.exit(1)
+
+    # 3. Verify client can connect
+    print()
+    if typedb_ping():
+        print(f"TypeDB client ping: OK  (database '{DB_NAME}' ready)")
+    else:
+        print(f"TypeDB client ping: FAILED  (database '{DB_NAME}' not found after setup)")
+
+    print("\nSetup complete. Start the ASTRA backend with:")
+    print("  python backend.py")
+    print("Start the ASTRA engine with:")
+    print("  python skills/svaya-noc/svaya_engine.py")
+
 
 if __name__ == "__main__":
-    test_redis()
-    setup_neo4j()
+    recreate = "--no-recreate" not in sys.argv
+    setup_all(recreate=recreate)

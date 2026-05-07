@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Network Autonomy Assessment | Svaya{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            svaya: {
+              blue:  '#0050A0',
+              teal:  '#00B4A0',
+              light: '#F5F8FC',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    .level-badge { display:inline-flex; align-items:center; justify-content:center;
+                   width:56px; height:56px; border-radius:50%; font-weight:800; font-size:1.4rem; }
+    .bar-track   { background:#D1DCE8; border-radius:4px; overflow:hidden; position:relative; }
+    .bar-fill    { background:#0050A0; height:100%; border-radius:4px; transition:width 0.6s ease; }
+    .bar-bench   { position:absolute; top:0; bottom:0; width:2px; background:#64748b; }
+    .probe-ok    { background:#22C55E; color:#fff; }
+    .probe-warn  { background:#F59E0B; color:#fff; }
+    .probe-fail  { background:#EF4444; color:#fff; }
+    .probe-skip  { background:#94A3B8; color:#fff; }
+    .section-hidden { display: none; }
+  </style>
+  {% block head_extra %}{% endblock %}
+</head>
+<body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col">
+
+  <!-- Nav -->
+  <nav class="bg-svaya-blue text-white px-6 py-3 flex items-center justify-between shadow-md">
+    <a href="/" class="font-bold text-lg tracking-tight">
+      <span class="text-svaya-teal">Svaya</span> Assessment
+    </a>
+    <a href="https://svaya.io" target="_blank"
+       class="text-xs text-blue-200 hover:text-white transition">svaya.io →</a>
+  </nav>
+
+  <main class="flex-1">
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- Footer -->
+  <footer class="bg-svaya-blue text-blue-200 text-xs px-6 py-4 mt-12 flex flex-wrap gap-4 justify-between">
+    <span>© 2025 Svaya Networks Ltd. All rights reserved.</span>
+    <span>Aligned with TM Forum IG1218 v2.2.0 · IG1252 v1.2.0 · Broadband Forum TR-369 USP</span>
+    <a href="mailto:hello@svaya.io" class="hover:text-white">hello@svaya.io</a>
+  </footer>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,346 @@
+{% extends "base.html" %}
+{% block title %}Network Autonomy Survey | Svaya Assessment{% endblock %}
+
+{% block head_extra %}
+<style>
+  .step-dot { width:10px; height:10px; border-radius:50%; background:#CBD5E1; transition:background 0.3s; }
+  .step-dot.active { background:#0050A0; }
+  .step-dot.done   { background:#00B4A0; }
+  .option-card { cursor:pointer; border:2px solid #E2E8F0; border-radius:12px; transition:border 0.2s, background 0.2s; }
+  .option-card:has(input:checked) { border-color:#0050A0; background:#EFF6FF; }
+  .option-card label { cursor:pointer; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto px-4 py-10">
+
+  <!-- Error banner -->
+  {% if error %}
+  <div class="bg-red-50 border border-red-300 text-red-700 rounded-lg px-4 py-3 mb-6 text-sm">
+    {{ error }}
+  </div>
+  {% endif %}
+
+  <!-- Progress bar -->
+  <div class="mb-8">
+    <div class="flex justify-between text-xs text-gray-400 mb-2">
+      <span id="step-label">Step 1 of {{ sections|length }}</span>
+      <span id="pct-label">0% complete</span>
+    </div>
+    <div class="h-2 bg-gray-200 rounded-full overflow-hidden">
+      <div id="progress-bar" class="h-full bg-svaya-blue rounded-full transition-all duration-500" style="width:0%"></div>
+    </div>
+    <div class="flex gap-2 mt-3">
+      {% for s in sections %}
+      <div class="step-dot" id="dot-{{ loop.index0 }}"></div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <form method="POST" action="/survey/submit" id="survey-form">
+
+    <!-- ================================================================ -->
+    <!-- Sections rendered by survey_engine SECTIONS list -->
+    <!-- ================================================================ -->
+    {% for section in sections %}
+    <div class="survey-section section-hidden" id="section-{{ loop.index0 }}" data-index="{{ loop.index0 }}">
+
+      <div class="mb-6">
+        <h2 class="text-2xl font-bold text-svaya-blue">{{ section.title }}</h2>
+        {% if section.description %}
+        <p class="text-gray-500 mt-1 text-sm">{{ section.description }}</p>
+        {% endif %}
+        {% if section.tmf_ref %}
+        <span class="inline-block mt-2 text-xs text-gray-400 border border-gray-200 rounded px-2 py-0.5">
+          {{ section.tmf_ref }}
+        </span>
+        {% endif %}
+      </div>
+
+      {% for q in section.questions %}
+      <div class="mb-6">
+        <p class="font-medium text-gray-800 mb-3">{{ q.text }}</p>
+
+        {% if q.type == 'radio' %}
+          <div class="space-y-2">
+            {% for opt in q.options %}
+            <div class="option-card p-3 flex items-start gap-3">
+              <input type="radio" name="q_{{ q.id }}" id="q_{{ q.id }}_{{ loop.index0 }}"
+                     value="{{ opt.value }}" class="mt-0.5 accent-svaya-blue"
+                     {% if q.required %}required{% endif %} />
+              <label for="q_{{ q.id }}_{{ loop.index0 }}" class="flex-1 text-sm">
+                <span class="font-semibold text-svaya-blue">L{{ opt.value }}</span>
+                — {{ opt.label }}
+              </label>
+            </div>
+            {% endfor %}
+          </div>
+
+        {% elif q.type == 'checkbox' %}
+          <div class="space-y-2">
+            {% for opt in q.options %}
+            <div class="option-card p-3 flex items-start gap-3">
+              <input type="checkbox" name="q_{{ q.id }}" id="q_{{ q.id }}_{{ loop.index0 }}"
+                     value="{{ opt.value }}" class="mt-0.5 accent-svaya-blue" />
+              <label for="q_{{ q.id }}_{{ loop.index0 }}" class="flex-1 text-sm">{{ opt.label }}</label>
+            </div>
+            {% endfor %}
+          </div>
+
+        {% elif q.type == 'text' %}
+          <input type="text" name="q_{{ q.id }}" id="q_{{ q.id }}"
+                 class="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-svaya-blue"
+                 placeholder="{{ q.placeholder or '' }}" />
+
+        {% elif q.type == 'email' %}
+          <input type="email" name="q_{{ q.id }}" id="q_{{ q.id }}"
+                 class="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-svaya-blue"
+                 placeholder="{{ q.placeholder or 'you@company.com' }}" />
+
+        {% elif q.type == 'select' %}
+          <select name="q_{{ q.id }}" id="q_{{ q.id }}"
+                  class="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm bg-white focus:outline-none focus:border-svaya-blue">
+            <option value="">— select —</option>
+            {% for opt in q.options %}
+            <option value="{{ opt.value }}">{{ opt.label }}</option>
+            {% endfor %}
+          </select>
+        {% endif %}
+      </div>
+      {% endfor %}
+
+      <!-- ============================================================ -->
+      <!-- Contact section hidden fields (mapped from contact questions) -->
+      <!-- ============================================================ -->
+      {% if section.id == 'contact' %}
+      <!-- These are named form fields used by the backend directly -->
+      {% for q in section.questions %}
+        {% if q.id in ['company','contact_name','email','phone','country','network_size'] %}
+        <input type="hidden" name="{{ q.id }}" id="hidden_{{ q.id }}" />
+        {% endif %}
+      {% endfor %}
+      {% endif %}
+
+      <!-- Navigation buttons -->
+      <div class="flex justify-between mt-8">
+        {% if not loop.first %}
+        <button type="button" onclick="goTo({{ loop.index0 - 1 }})"
+                class="px-6 py-2 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-100 transition">
+          ← Back
+        </button>
+        {% else %}
+        <div></div>
+        {% endif %}
+
+        {% if not loop.last %}
+        <button type="button" onclick="goTo({{ loop.index0 + 1 }})"
+                class="px-6 py-2 bg-svaya-blue text-white rounded-lg text-sm font-medium hover:bg-blue-800 transition">
+          Next →
+        </button>
+        {% else %}
+        <!-- Final section: show probe opt-in then submit -->
+        <button type="button" onclick="showProbePanel()"
+                class="px-6 py-2 bg-svaya-blue text-white rounded-lg text-sm font-medium hover:bg-blue-800 transition">
+          Next →
+        </button>
+        {% endif %}
+      </div>
+
+    </div>
+    {% endfor %}
+
+    <!-- ================================================================ -->
+    <!-- Contact fields (rendered properly at top of contact section)     -->
+    <!-- They're also sent as top-level form fields for the backend        -->
+    <!-- ================================================================ -->
+    <div class="survey-section section-hidden" id="section-contact-fields"
+         style="display:none!important" aria-hidden="true">
+      <input type="text"  name="company"      id="f-company"      />
+      <input type="text"  name="contact_name" id="f-contact_name" />
+      <input type="email" name="email"         id="f-email"        />
+      <input type="text"  name="phone"         id="f-phone"        />
+      <input type="text"  name="country"       id="f-country"      />
+      <input type="text"  name="network_size"  id="f-network_size" />
+    </div>
+
+    <!-- ================================================================ -->
+    <!-- Probe opt-in panel (shown after last survey section)             -->
+    <!-- ================================================================ -->
+    <div id="probe-panel" class="section-hidden">
+      <div class="bg-svaya-light border border-blue-200 rounded-2xl p-8 mb-6">
+        <h2 class="text-xl font-bold text-svaya-blue mb-2">Optional: Live Network Readiness Check</h2>
+        <p class="text-gray-600 text-sm mb-4">
+          Allow Svaya to run five read-only checks against your NMS and include the results
+          in your report. No changes will be made to your network.
+        </p>
+
+        <label class="flex items-center gap-3 cursor-pointer mb-6">
+          <input type="checkbox" id="probe-consent" name="run_probe" value="yes"
+                 class="accent-svaya-blue w-5 h-5" onchange="toggleProbeFields(this.checked)" />
+          <span class="font-medium text-sm">
+            I consent to Svaya performing read-only network checks on the endpoint below.
+          </span>
+        </label>
+
+        <div id="probe-fields" class="section-hidden space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">NMS Endpoint URL</label>
+            <input type="url" name="nms_endpoint" id="nms_endpoint"
+                   class="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-svaya-blue"
+                   placeholder="https://nms.yournetwork.com" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Vendor</label>
+            <select name="nms_vendor"
+                    class="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm bg-white focus:outline-none focus:border-svaya-blue">
+              <option value="generic">Generic / Unknown</option>
+              <option value="ericsson">Ericsson ENM</option>
+              <option value="nokia">Nokia NetAct</option>
+              <option value="samsung">Samsung OSS</option>
+              <option value="huawei">Huawei iMaster NCE</option>
+            </select>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">
+                PM API Username <span class="text-gray-400">(optional)</span>
+              </label>
+              <input type="text" name="pm_username"
+                     class="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-svaya-blue"
+                     placeholder="read-only API user" autocomplete="off" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">
+                PM API Password <span class="text-gray-400">(optional)</span>
+              </label>
+              <input type="password" name="pm_password"
+                     class="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-svaya-blue"
+                     autocomplete="off" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Contact details collected in this final panel -->
+      <div class="bg-white border border-gray-200 rounded-2xl p-8 mb-6">
+        <h2 class="text-xl font-bold text-svaya-blue mb-4">Your Contact Details</h2>
+        <p class="text-gray-500 text-sm mb-6">
+          We'll email your full PDF report. We won't spam you — just your report and
+          an optional follow-up from our solutions team.
+        </p>
+        <div class="grid md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Company *</label>
+            <input type="text" name="company" id="c-company" required
+                   class="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-svaya-blue" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Your Name *</label>
+            <input type="text" name="contact_name" id="c-contact_name" required
+                   class="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-svaya-blue" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Work Email *</label>
+            <input type="email" name="email" id="c-email" required
+                   class="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-svaya-blue" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+            <input type="tel" name="phone"
+                   class="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-svaya-blue" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Country</label>
+            <input type="text" name="country"
+                   class="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-svaya-blue"
+                   placeholder="UK" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Network Size (CPE count)</label>
+            <select name="network_size"
+                    class="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm bg-white focus:outline-none focus:border-svaya-blue">
+              <option value="">— select —</option>
+              <option value="<1000">&lt; 1,000</option>
+              <option value="1k-10k">1,000 – 10,000</option>
+              <option value="10k-100k">10,000 – 100,000</option>
+              <option value=">100k">&gt; 100,000</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex justify-between">
+        <button type="button" onclick="backFromProbe()"
+                class="px-6 py-2 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-100 transition">
+          ← Back
+        </button>
+        <button type="submit" id="submit-btn"
+                class="px-8 py-3 bg-svaya-teal hover:bg-teal-500 text-white rounded-xl font-bold text-sm shadow transition">
+          Get My Results →
+        </button>
+      </div>
+    </div>
+
+  </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const totalSections = {{ sections|length }};
+  let currentSection = 0;
+  let lastSurveySection = totalSections - 1;
+
+  function updateProgress(idx) {
+    const pct = Math.round((idx / (totalSections)) * 100);
+    document.getElementById('progress-bar').style.width = pct + '%';
+    document.getElementById('pct-label').textContent = pct + '% complete';
+    document.getElementById('step-label').textContent =
+      idx < totalSections
+        ? `Step ${idx + 1} of ${totalSections}`
+        : 'Almost done!';
+    for (let i = 0; i < totalSections; i++) {
+      const dot = document.getElementById('dot-' + i);
+      if (!dot) continue;
+      dot.classList.remove('active', 'done');
+      if (i === idx) dot.classList.add('active');
+      else if (i < idx) dot.classList.add('done');
+    }
+  }
+
+  function showSection(idx) {
+    document.querySelectorAll('.survey-section').forEach(el => el.classList.add('section-hidden'));
+    document.getElementById('probe-panel').classList.add('section-hidden');
+    const target = document.getElementById('section-' + idx);
+    if (target) target.classList.remove('section-hidden');
+    currentSection = idx;
+    updateProgress(idx);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function goTo(idx) {
+    showSection(idx);
+  }
+
+  function showProbePanel() {
+    document.querySelectorAll('.survey-section').forEach(el => el.classList.add('section-hidden'));
+    document.getElementById('probe-panel').classList.remove('section-hidden');
+    updateProgress(totalSections);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function backFromProbe() {
+    showSection(lastSurveySection);
+  }
+
+  function toggleProbeFields(checked) {
+    const el = document.getElementById('probe-fields');
+    if (checked) el.classList.remove('section-hidden');
+    else el.classList.add('section-hidden');
+  }
+
+  // Init
+  showSection(0);
+</script>
+{% endblock %}

@@ -4,3 +4,7 @@ flask
 requests
 networkx
 matplotlib
+python-dotenv
+redis
+typedb-driver
+pandas

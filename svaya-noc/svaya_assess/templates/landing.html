@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block title %}Free Network Autonomy Assessment | Svaya{% endblock %}
+
+{% block content %}
+<!-- Hero -->
+<section class="bg-gradient-to-br from-svaya-blue to-blue-900 text-white py-24 px-6 text-center">
+  <div class="max-w-3xl mx-auto">
+    <span class="inline-block bg-svaya-teal text-white text-xs font-semibold px-3 py-1 rounded-full mb-4 uppercase tracking-wider">
+      TM Forum Aligned · Free Assessment
+    </span>
+    <h1 class="text-4xl md:text-5xl font-extrabold leading-tight mb-6">
+      How autonomous is your<br/>network today?
+    </h1>
+    <p class="text-xl text-blue-200 mb-10 max-w-2xl mx-auto">
+      Assess your RAN (2G–5G), Core, and Transport network autonomy against the
+      TM Forum L0–L5 framework. Get your score across five cognitive dimensions,
+      a personalised gap analysis, and a downloadable PDF report — in under 10 minutes.
+    </p>
+    <div class="flex flex-col sm:flex-row gap-4 justify-center">
+      <a href="/chat"
+         class="inline-block bg-svaya-teal hover:bg-teal-400 text-white font-bold text-lg px-10 py-4 rounded-xl shadow-lg transition">
+        Start AI-Guided Assessment →
+      </a>
+      <a href="/survey"
+         class="inline-block bg-white/10 hover:bg-white/20 border border-white/30 text-white font-semibold text-lg px-10 py-4 rounded-xl transition">
+        Quick Survey (5 min)
+      </a>
+    </div>
+    <p class="mt-4 text-blue-300 text-sm">No credit card · No installation · Results instant</p>
+  </div>
+</section>
+
+<!-- Assessment skills / domains -->
+<section class="py-16 px-6 max-w-5xl mx-auto">
+  <h2 class="text-2xl font-bold text-center text-svaya-blue mb-4">Six assessment skills</h2>
+  <p class="text-center text-gray-500 mb-12 max-w-2xl mx-auto">
+    Each skill is a deep, use-case specific assessment aligned with TM Forum IG1252 methodology.
+    Complete one or all — your score is stored and combined.
+  </p>
+  <div class="grid md:grid-cols-3 gap-6">
+
+    <div class="bg-white rounded-2xl shadow p-6">
+      <div class="text-3xl mb-3">📶</div>
+      <h3 class="font-bold text-lg mb-1">Multi-Technology RAN</h3>
+      <p class="text-gray-500 text-sm">
+        2G GSM/EDGE · 3G UMTS/HSPA · 4G LTE/LTE-A · 5G NR SA/NSA<br/>
+        SON/ANR, multi-vendor execution, inter-generation RCA, spectrum lifecycle.
+      </p>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow p-6">
+      <div class="text-3xl mb-3">🖧</div>
+      <h3 class="font-bold text-lg mb-1">Core Network</h3>
+      <p class="text-gray-500 text-sm">
+        Legacy MSC/SGSN · 4G EPC · 5G Core · IMS/VoLTE/VoNR<br/>
+        Slice intent, session awareness, CNF/VNF lifecycle, cross-NF RCA.
+      </p>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow p-6">
+      <div class="text-3xl mb-3">🔗</div>
+      <h3 class="font-bold text-lg mb-1">Transport &amp; Backhaul</h3>
+      <p class="text-gray-500 text-sm">
+        Microwave/mmWave · Fiber/OTN · IP/MPLS + SD-WAN<br/>
+        Multi-layer topology, path protection, zero-touch provisioning.
+      </p>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow p-6">
+      <div class="text-3xl mb-3">📡</div>
+      <h3 class="font-bold text-lg mb-1">FWA / Wireless Broadband</h3>
+      <p class="text-gray-500 text-sm">
+        5G FWA · Fixed Wireless Access · WISP operations<br/>
+        CPE fleet automation, beam management, zero-touch onboarding.
+      </p>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow p-6">
+      <div class="text-3xl mb-3">⚡</div>
+      <h3 class="font-bold text-lg mb-1">Energy Efficiency</h3>
+      <p class="text-gray-500 text-sm">
+        Intra-RAT · Inter-frequency · Inter-RAT energy steering<br/>
+        AI sleep-mode, dynamic power control, green network certification readiness.
+      </p>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow p-6">
+      <div class="text-3xl mb-3">🔬</div>
+      <h3 class="font-bold text-lg mb-1">Live Network Probe</h3>
+      <p class="text-gray-500 text-sm">
+        Optional: connect your NMS/OSS endpoint (read-only).<br/>
+        Svaya checks reachability, API support, PM counter access, and NETCONF/YANG readiness.
+      </p>
+    </div>
+
+  </div>
+</section>
+
+<!-- What you'll receive -->
+<section class="bg-svaya-light py-16 px-6">
+  <div class="max-w-5xl mx-auto">
+    <h2 class="text-2xl font-bold text-center text-svaya-blue mb-12">What you'll receive</h2>
+    <div class="grid md:grid-cols-3 gap-8">
+
+      <div class="bg-white rounded-2xl shadow p-8 text-center">
+        <div class="text-4xl mb-4">📊</div>
+        <h3 class="font-bold text-lg mb-2">TM Forum L0–L5 Score</h3>
+        <p class="text-gray-500 text-sm">
+          Benchmarked across the five cognitive dimensions from TM Forum IG1252 v1.2.0:
+          Intent, Awareness, Analysis, Decision, and Execution — scored L0–L5 and
+          compared to industry averages.
+        </p>
+      </div>
+
+      <div class="bg-white rounded-2xl shadow p-8 text-center">
+        <div class="text-4xl mb-4">🔍</div>
+        <h3 class="font-bold text-lg mb-2">Svaya Gap Analysis</h3>
+        <p class="text-gray-500 text-sm">
+          Prioritised recommendations mapped to Svaya capabilities — ranked by the gap
+          between your current level and what L3/L4 automation unlocks across RAN,
+          Core, and Transport.
+        </p>
+      </div>
+
+      <div class="bg-white rounded-2xl shadow p-8 text-center">
+        <div class="text-4xl mb-4">📄</div>
+        <h3 class="font-bold text-lg mb-2">Downloadable PDF Report</h3>
+        <p class="text-gray-500 text-sm">
+          A branded, shareable report for your CTO or board — includes maturity charts,
+          benchmark comparison across all domains, and next steps.
+        </p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- Live probe teaser -->
+<section class="py-14 px-6">
+  <div class="max-w-4xl mx-auto flex flex-col md:flex-row gap-8 items-center">
+    <div class="flex-1">
+      <h2 class="text-2xl font-bold text-svaya-blue mb-3">
+        Want a live network readiness check?
+      </h2>
+      <p class="text-gray-600 mb-4">
+        Optionally, you can provide your NMS/OSS endpoint and read-only credentials.
+        Svaya performs five non-destructive checks — reachability, TLS, vendor API detection,
+        NETCONF/YANG readiness, and PM counter access — and includes results in your report.
+      </p>
+      <ul class="text-sm text-gray-500 space-y-1">
+        <li>✓ Read-only — no changes made to your network</li>
+        <li>✓ TLS-encrypted · consent-gated</li>
+        <li>✓ Supports Ericsson ENM, Nokia NetAct, Huawei iMaster, Samsung OSS, generic NMS</li>
+      </ul>
+    </div>
+    <div class="flex-shrink-0">
+      <a href="/chat"
+         class="block bg-svaya-blue hover:bg-blue-800 text-white font-bold px-8 py-4 rounded-xl shadow transition text-center">
+        Start Assessment →
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- TM Forum alignment -->
+<section class="py-14 px-6 max-w-4xl mx-auto text-center">
+  <p class="text-gray-400 text-xs uppercase tracking-widest mb-6">Aligned with</p>
+  <div class="flex flex-wrap justify-center gap-6 text-sm font-semibold text-gray-500">
+    <span class="border border-gray-200 rounded-lg px-4 py-2">TM Forum IG1218 v2.2.0</span>
+    <span class="border border-gray-200 rounded-lg px-4 py-2">TM Forum IG1252 v1.2.0</span>
+    <span class="border border-gray-200 rounded-lg px-4 py-2">TM Forum IG1392 v2.0.0</span>
+    <span class="border border-gray-200 rounded-lg px-4 py-2">3GPP Release 18</span>
+    <span class="border border-gray-200 rounded-lg px-4 py-2">ETSI NFV / MEC</span>
+    <span class="border border-gray-200 rounded-lg px-4 py-2">5 Cognitive Dimensions</span>
+  </div>
+</section>
+{% endblock %}
