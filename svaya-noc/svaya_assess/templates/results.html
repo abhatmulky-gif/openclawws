@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% block title %}Your Assessment Results | Svaya ASTRA{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto px-4 py-10">
+
+  <!-- Header -->
+  <div class="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10">
+    <div>
+      <p class="text-sm text-gray-400 uppercase tracking-widest mb-1">Assessment Results</p>
+      <h1 class="text-3xl font-extrabold text-svaya-blue leading-tight">{{ lead.company }}</h1>
+      <p class="text-gray-500 text-sm mt-1">{{ lead.contact_name }} · {{ lead.email }}</p>
+    </div>
+
+    <!-- Overall maturity badge -->
+    <div class="flex flex-col items-center">
+      <div class="level-badge text-white text-3xl font-black shadow-lg"
+           style="background: {{ level_color }}; width:80px; height:80px;">
+        L{{ scores.overall | int }}
+      </div>
+      <p class="text-sm font-semibold mt-2 text-gray-700 text-center max-w-[120px]">
+        {{ level_label }}
+      </p>
+    </div>
+  </div>
+
+  <!-- Domain maturity bars -->
+  <section class="bg-white rounded-2xl shadow p-8 mb-8">
+    <h2 class="text-xl font-bold text-svaya-blue mb-1">Autonomy by eTOM Domain</h2>
+    <p class="text-xs text-gray-400 mb-6">
+      Bar = your score · Tick (|) = industry average · Scale: L0–L4
+    </p>
+
+    {% for row in domain_rows %}
+    <div class="mb-5">
+      <div class="flex justify-between items-center mb-1">
+        <span class="text-sm font-medium text-gray-700">{{ row.label }}</span>
+        <span class="text-sm font-bold" style="color:{{ row.level_color }}">
+          L{{ "%.1f"|format(row.score) }}
+        </span>
+      </div>
+      <div class="bar-track h-5 rounded-full" style="position:relative">
+        <div class="bar-fill h-5" style="width: {{ row.pct }}%; background: {{ row.level_color }}"></div>
+        <div class="bar-bench" style="left: {{ row.bench_pct }}%; position:absolute; top:0; bottom:0;"></div>
+      </div>
+      <div class="flex justify-between text-xs text-gray-400 mt-0.5">
+        <span>Industry avg: L{{ "%.1f"|format(row.bench_avg) }}</span>
+        <span>Top quartile: L{{ "%.1f"|format(row.bench_top) }}</span>
+      </div>
+    </div>
+    {% endfor %}
+  </section>
+
+  <!-- Gap analysis -->
+  {% if recommendations %}
+  <section class="bg-white rounded-2xl shadow p-8 mb-8">
+    <h2 class="text-xl font-bold text-svaya-blue mb-1">Svaya Gap Analysis</h2>
+    <p class="text-xs text-gray-400 mb-6">
+      Ranked by automation opportunity — biggest gaps first.
+    </p>
+
+    {% for rec in recommendations %}
+    <div class="border-l-4 pl-5 mb-6"
+         style="border-color: {% if rec.current_score < 1 %}#EF4444{% elif rec.current_score < 2 %}#F59E0B{% else %}#22C55E{% endif %}">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="text-sm font-bold text-svaya-teal">{{ rec.capability }}</span>
+        <span class="text-xs text-gray-400 border border-gray-200 rounded px-1.5 py-0.5">
+          {{ rec.domain }}
+        </span>
+      </div>
+      <div class="text-xs text-gray-500 mb-1">
+        Current: L{{ "%.1f"|format(rec.current_score) }}
+        → Target: L{{ rec.target_score }}
+        (Gap: {{ "%.1f"|format(rec.target_score - rec.current_score) }} levels)
+      </div>
+      <p class="text-sm text-gray-700 mb-1">{{ rec.description }}</p>
+      <p class="text-sm font-medium text-svaya-blue">
+        Expected outcome: {{ rec.outcome }}
+      </p>
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
+
+  <!-- Probe results -->
+  {% if probe %}
+  <section class="bg-white rounded-2xl shadow p-8 mb-8">
+    <h2 class="text-xl font-bold text-svaya-blue mb-1">Live Network Readiness Probe</h2>
+
+    {% set rc = probe.astra_readiness %}
+    {% set rc_colors = {
+      'READY':        '#22C55E',
+      'PARTIAL':      '#F59E0B',
+      'NEEDS_CONFIG': '#F97316',
+      'UNREACHABLE':  '#EF4444'
+    } %}
+    <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full text-white text-sm font-bold mb-4"
+         style="background: {{ rc_colors.get(rc, '#94A3B8') }}">
+      {{ rc }}
+    </div>
+    <p class="text-sm text-gray-600 mb-6">{{ probe.summary }}</p>
+
+    {% if probe.error %}
+    <p class="text-sm text-red-500">{{ probe.error }}</p>
+    {% else %}
+    {% for key in ['reachability','tls_info','nms_api','tr369_usp','pm_sample'] %}
+    {% set chk = probe.get(key, {}) %}
+    {% if chk %}
+    <div class="flex items-start gap-4 mb-4 p-3 bg-gray-50 rounded-lg">
+      <span class="probe-{{ chk.status }} text-xs font-bold px-2 py-1 rounded shrink-0 mt-0.5">
+        {{ chk.status | upper }}
+      </span>
+      <div>
+        <p class="text-sm font-medium text-gray-800">{{ chk.check }}</p>
+        <p class="text-xs text-gray-500">
+          {{ chk.detail }}
+          {% if chk.latency_ms %} · {{ chk.latency_ms }}ms{% endif %}
+        </p>
+      </div>
+    </div>
+    {% endif %}
+    {% endfor %}
+    {% endif %}
+  </section>
+  {% endif %}
+
+  <!-- CTA buttons -->
+  <div class="flex flex-col sm:flex-row gap-4 mb-6">
+    <a href="/results/{{ lead.id }}/pdf"
+       class="flex-1 bg-svaya-blue hover:bg-blue-800 text-white font-bold text-center py-4 rounded-xl shadow transition">
+      ⬇ Download PDF Report
+    </a>
+    <a href="https://svaya.io/demo" target="_blank"
+       class="flex-1 bg-svaya-teal hover:bg-teal-500 text-white font-bold text-center py-4 rounded-xl shadow transition">
+      📅 Book a Demo
+    </a>
+    <a href="/survey"
+       class="flex-1 border border-gray-300 text-gray-700 hover:bg-gray-100 font-bold text-center py-4 rounded-xl transition">
+      ↺ Retake Survey
+    </a>
+  </div>
+
+  <!-- Next steps -->
+  <div class="bg-svaya-light rounded-2xl p-8">
+    <h2 class="text-lg font-bold text-svaya-blue mb-4">Your Next Steps</h2>
+    <div class="grid md:grid-cols-2 gap-4 text-sm">
+      <div class="flex gap-3">
+        <span class="text-svaya-teal font-black text-lg">1</span>
+        <div>
+          <p class="font-semibold">Book a 30-minute demo</p>
+          <p class="text-gray-500">See ASTRA running against a live multi-vendor FWA lab.</p>
+        </div>
+      </div>
+      <div class="flex gap-3">
+        <span class="text-svaya-teal font-black text-lg">2</span>
+        <div>
+          <p class="font-semibold">Request a PoV scoping call</p>
+          <p class="text-gray-500">30-day proof-of-value with measurable KPIs.</p>
+        </div>
+      </div>
+      <div class="flex gap-3">
+        <span class="text-svaya-teal font-black text-lg">3</span>
+        <div>
+          <p class="font-semibold">Enable TR-369 USP on your ACS</p>
+          <p class="text-gray-500">Tier 1 integration — no on-CPE changes required.</p>
+        </div>
+      </div>
+      <div class="flex gap-3">
+        <span class="text-svaya-teal font-black text-lg">4</span>
+        <div>
+          <p class="font-semibold">TM Forum Workshop</p>
+          <p class="text-gray-500">Half-day remote session to validate scores and build a roadmap.</p>
+        </div>
+      </div>
+    </div>
+    <p class="mt-6 text-center text-sm text-gray-500">
+      Questions? Email us at
+      <a href="mailto:hello@svaya.io" class="text-svaya-blue font-medium">hello@svaya.io</a>
+    </p>
+  </div>
+
+</div>
+{% endblock %}

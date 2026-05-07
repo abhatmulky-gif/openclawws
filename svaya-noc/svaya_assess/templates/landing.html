@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Free FWA Network Autonomy Assessment | Svaya ASTRA{% endblock %}
+
+{% block content %}
+<!-- Hero -->
+<section class="bg-gradient-to-br from-svaya-blue to-blue-900 text-white py-24 px-6 text-center">
+  <div class="max-w-3xl mx-auto">
+    <span class="inline-block bg-svaya-teal text-white text-xs font-semibold px-3 py-1 rounded-full mb-4 uppercase tracking-wider">
+      TM Forum Aligned · Free Assessment
+    </span>
+    <h1 class="text-4xl md:text-5xl font-extrabold leading-tight mb-6">
+      How autonomous is your<br/>FWA network today?
+    </h1>
+    <p class="text-xl text-blue-200 mb-10 max-w-2xl mx-auto">
+      Answer 20 questions. Get your TM Forum L0–L4 maturity score, a personalised
+      gap analysis, and a downloadable PDF report — in under 5 minutes.
+    </p>
+    <a href="/survey"
+       class="inline-block bg-svaya-teal hover:bg-teal-400 text-white font-bold text-lg px-10 py-4 rounded-xl shadow-lg transition">
+      Start Your Free Assessment →
+    </a>
+    <p class="mt-4 text-blue-300 text-sm">No credit card · No installation · Results instant</p>
+  </div>
+</section>
+
+<!-- Value props -->
+<section class="py-16 px-6 max-w-5xl mx-auto">
+  <h2 class="text-2xl font-bold text-center text-svaya-blue mb-12">What you'll receive</h2>
+  <div class="grid md:grid-cols-3 gap-8">
+
+    <div class="bg-white rounded-2xl shadow p-8 text-center">
+      <div class="text-4xl mb-4">📊</div>
+      <h3 class="font-bold text-lg mb-2">TM Forum L0–L4 Score</h3>
+      <p class="text-gray-500 text-sm">
+        Benchmarked across five eTOM domains: Fault, Performance, Configuration,
+        Fulfillment, and Energy — compared to industry averages.
+      </p>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow p-8 text-center">
+      <div class="text-4xl mb-4">🔍</div>
+      <h3 class="font-bold text-lg mb-2">Svaya Gap Analysis</h3>
+      <p class="text-gray-500 text-sm">
+        Prioritised recommendations mapped to ASTRA capabilities — ranked by the gap
+        between your current level and what L3/L4 automation unlocks.
+      </p>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow p-8 text-center">
+      <div class="text-4xl mb-4">📄</div>
+      <h3 class="font-bold text-lg mb-2">Downloadable PDF Report</h3>
+      <p class="text-gray-500 text-sm">
+        A branded, shareable report for your CTO or board — includes maturity charts,
+        benchmark comparison, and next steps.
+      </p>
+    </div>
+
+  </div>
+</section>
+
+<!-- Optional probe teaser -->
+<section class="bg-svaya-light py-14 px-6">
+  <div class="max-w-4xl mx-auto flex flex-col md:flex-row gap-8 items-center">
+    <div class="flex-1">
+      <h2 class="text-2xl font-bold text-svaya-blue mb-3">
+        Want a live network readiness check?
+      </h2>
+      <p class="text-gray-600 mb-4">
+        Optionally, at the end of the survey you can provide your NMS endpoint and
+        (read-only) credentials. ASTRA will perform five non-destructive checks —
+        reachability, TLS, vendor API detection, TR-369 USP discovery, and PM counter
+        access — and include the results in your report.
+      </p>
+      <ul class="text-sm text-gray-500 space-y-1">
+        <li>✓ Read-only — no changes made to your network</li>
+        <li>✓ TLS-encrypted · consent-gated</li>
+        <li>✓ Supports Ericsson ENM, Nokia NetAct, Samsung OSS, Huawei iMaster, generic</li>
+      </ul>
+    </div>
+    <div class="flex-shrink-0">
+      <a href="/survey"
+         class="block bg-svaya-blue hover:bg-blue-800 text-white font-bold px-8 py-4 rounded-xl shadow transition text-center">
+        Start Assessment →
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- TM Forum alignment logos / badges -->
+<section class="py-14 px-6 max-w-4xl mx-auto text-center">
+  <p class="text-gray-400 text-xs uppercase tracking-widest mb-6">Aligned with</p>
+  <div class="flex flex-wrap justify-center gap-6 text-sm font-semibold text-gray-500">
+    <span class="border border-gray-200 rounded-lg px-4 py-2">TM Forum IG1218</span>
+    <span class="border border-gray-200 rounded-lg px-4 py-2">TM Forum IG1230</span>
+    <span class="border border-gray-200 rounded-lg px-4 py-2">3GPP TR-285</span>
+    <span class="border border-gray-200 rounded-lg px-4 py-2">Broadband Forum TR-369 USP</span>
+    <span class="border border-gray-200 rounded-lg px-4 py-2">eTOM 1.3.x Domains</span>
+  </div>
+</section>
+{% endblock %}
