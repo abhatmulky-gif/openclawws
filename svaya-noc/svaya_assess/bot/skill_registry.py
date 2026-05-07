@@ -11,6 +11,9 @@ from skills.base import BaseSkill
 
 # Explicit registration order (controls menu display order)
 _SKILL_MODULES = [
+    "skills.ran_autonomy",
+    "skills.core_autonomy",
+    "skills.transport_autonomy",
     "skills.fwa_autonomy",
     "skills.energy_efficiency",
     "skills.network_probe_skill",

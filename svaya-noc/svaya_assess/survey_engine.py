@@ -22,7 +22,7 @@ SECTIONS = [
     {
         "id": "profile",
         "title": "About Your Network",
-        "description": "A few questions to tailor your benchmark results.",
+        "description": "A few questions to tailor your benchmark results to your technology mix.",
         "tmf_ref": None,
         "questions": [
             {
@@ -31,22 +31,49 @@ SECTIONS = [
                 "type": "radio",
                 "domain": None,
                 "options": [
-                    {"value": "operator",    "label": "Fixed Wireless Access operator / WISP"},
-                    {"value": "mnvo",        "label": "MVNO with own network elements"},
-                    {"value": "integrated",  "label": "Integrated operator (fixed + mobile)"},
-                    {"value": "integrator",  "label": "System integrator / managed service provider"},
+                    {"value": "mno",        "label": "Mobile Network Operator (MNO)"},
+                    {"value": "fwa",        "label": "Fixed Wireless Access operator / WISP"},
+                    {"value": "integrated", "label": "Integrated operator (fixed + mobile + transport)"},
+                    {"value": "mvno",       "label": "MVNO with own network elements"},
+                    {"value": "integrator", "label": "System integrator / managed service provider"},
                 ],
             },
             {
-                "id": "fwa_subscribers",
-                "text": "How many FWA / fixed wireless subscribers do you currently serve?",
+                "id": "network_size",
+                "text": "How many subscribers / connections does your network serve?",
                 "type": "radio",
                 "domain": None,
                 "options": [
-                    {"value": "<5k",     "label": "Fewer than 5,000"},
-                    {"value": "5k-50k",  "label": "5,000 – 50,000"},
-                    {"value": "50k-500k","label": "50,000 – 500,000"},
-                    {"value": ">500k",   "label": "More than 500,000"},
+                    {"value": "<100k",   "label": "Fewer than 100,000"},
+                    {"value": "100k-1m", "label": "100,000 – 1 million"},
+                    {"value": "1m-10m",  "label": "1 million – 10 million"},
+                    {"value": ">10m",    "label": "More than 10 million"},
+                ],
+            },
+            {
+                "id": "ran_generations",
+                "text": "Which radio generations are active in your RAN today?",
+                "type": "checkbox",
+                "domain": None,
+                "options": [
+                    {"value": "2g",    "label": "2G (GSM / GPRS / EDGE)"},
+                    {"value": "3g",    "label": "3G (UMTS / HSPA / HSPA+)"},
+                    {"value": "4g",    "label": "4G (LTE / LTE-A / LTE-A Pro)"},
+                    {"value": "5g_nsa","label": "5G NR Non-Standalone (NSA, anchored on LTE)"},
+                    {"value": "5g_sa", "label": "5G NR Standalone (SA, 5G Core)"},
+                ],
+            },
+            {
+                "id": "core_type",
+                "text": "Which core network domains are in scope for your automation programme?",
+                "type": "checkbox",
+                "domain": None,
+                "options": [
+                    {"value": "legacy_core", "label": "Legacy circuit-switched core (MSC, SGSN, HLR)"},
+                    {"value": "epc",         "label": "4G EPC (MME, SGW, PGW, HSS, PCRF)"},
+                    {"value": "5gc",         "label": "5G Core (AMF, SMF, UPF, PCF, UDM)"},
+                    {"value": "ims",         "label": "IMS / VoLTE / VoNR"},
+                    {"value": "transport",   "label": "Transport / backhaul (microwave, fiber, IP/MPLS)"},
                 ],
             },
             {
@@ -60,20 +87,22 @@ SECTIONS = [
                     {"value": "samsung",  "label": "Samsung"},
                     {"value": "huawei",   "label": "Huawei"},
                     {"value": "zte",      "label": "ZTE"},
-                    {"value": "other",    "label": "Other / open-source RAN"},
+                    {"value": "other",    "label": "Other / open RAN / vRAN"},
                 ],
             },
             {
                 "id": "primary_challenge",
-                "text": "What is your biggest operational challenge today?",
+                "text": "What is your single biggest operational challenge today?",
                 "type": "radio",
                 "domain": None,
                 "options": [
-                    {"value": "uplink",    "label": "Uplink performance for edge/indoor CPEs"},
-                    {"value": "faults",    "label": "Fault detection and MTTR"},
-                    {"value": "multivendor","label": "Multi-vendor complexity and OPEX"},
-                    {"value": "zerotouch", "label": "Zero-touch provisioning and truck rolls"},
-                    {"value": "energy",    "label": "Energy costs and sustainability targets"},
+                    {"value": "performance",  "label": "Network performance and QoE across generations"},
+                    {"value": "faults",       "label": "Fault detection, RCA, and MTTR"},
+                    {"value": "energy",       "label": "Energy costs and sustainability targets"},
+                    {"value": "multivendor",  "label": "Multi-vendor complexity and OPEX"},
+                    {"value": "zerotouch",    "label": "Zero-touch provisioning and service activation"},
+                    {"value": "transport",    "label": "Transport capacity planning and protection"},
+                    {"value": "core",         "label": "Core network slicing and session management"},
                 ],
             },
         ],
@@ -110,12 +139,12 @@ SECTIONS = [
             },
             {
                 "id": "intent_qoe_translation",
-                "text": "How are QoE targets (e.g., uplink throughput, latency) translated into CPE/RAN configuration?",
+                "text": "How are QoE targets (e.g., throughput, latency, reliability) translated into network element configuration?",
                 "type": "radio",
                 "domain": "intent",
                 "required": True,
                 "options": [
-                    {"value": 0, "label": "Manual CLI commands per CPE; no automation"},
+                    {"value": 0, "label": "Manual CLI commands per network element; no automation"},
                     {"value": 1, "label": "Script-assisted bulk changes; engineer reviews each batch before execution"},
                     {"value": 2, "label": "Template-based configuration push with manual approval gate"},
                     {"value": 3, "label": "Automated parameter mapping from QoE targets to vendor-specific settings for standard scenarios"},
@@ -150,14 +179,14 @@ SECTIONS = [
         "title": "Awareness — Real-Time Network State Visibility",
         "description": (
             "This dimension assesses the depth and timeliness of your network "
-            "observability — from CPE telemetry through RAN and backhaul, and your "
+            "observability — across RAN, core, and transport domains — and your "
             "ability to detect issues before subscribers are impacted."
         ),
         "tmf_ref": "TM Forum IG1252 §4.2 · Awareness Cognitive Dimension",
         "questions": [
             {
                 "id": "awareness_telemetry",
-                "text": "What is your real-time telemetry coverage across your FWA CPE fleet?",
+                "text": "What is your real-time telemetry coverage across your managed network elements (RAN, core, transport)?",
                 "type": "radio",
                 "domain": "awareness",
                 "required": True,
@@ -172,7 +201,7 @@ SECTIONS = [
             },
             {
                 "id": "awareness_correlation",
-                "text": "How do you correlate CPE performance with RAN conditions and backhaul health?",
+                "text": "How do you correlate performance across network domains (RAN, core, transport, access)?",
                 "type": "radio",
                 "domain": "awareness",
                 "required": True,
@@ -219,7 +248,7 @@ SECTIONS = [
         "questions": [
             {
                 "id": "analysis_rca",
-                "text": "How do you diagnose the root cause of FWA performance degradation?",
+                "text": "How do you diagnose the root cause of network performance degradation across domains?",
                 "type": "radio",
                 "domain": "analysis",
                 "required": True,
@@ -336,54 +365,54 @@ SECTIONS = [
         "title": "Execution — Zero-Touch Multi-Vendor Orchestration",
         "description": (
             "This dimension assesses your ability to apply configuration changes "
-            "across a multi-vendor fleet with zero or minimal human intervention — "
-            "from routine optimisation through to zero-touch CPE activation."
+            "across a multi-vendor, multi-technology fleet with zero or minimal human "
+            "intervention — from routine optimisation through to zero-touch service activation."
         ),
         "tmf_ref": "TM Forum IG1252 §4.5 · Execution Cognitive Dimension",
         "questions": [
             {
                 "id": "execution_config_push",
-                "text": "How are configuration changes pushed to your FWA CPE fleet?",
+                "text": "How are configuration changes applied across your network element fleet (RAN, core, transport)?",
                 "type": "radio",
                 "domain": "execution",
                 "required": True,
                 "options": [
-                    {"value": 0, "label": "Manual CLI per CPE via SSH; engineer on-site or remote desktop per device"},
-                    {"value": 1, "label": "Scripted mass change; engineer reviews list and approves before execution"},
-                    {"value": 2, "label": "Template-based push via NMS; automated for standard operations, manual for edge cases"},
-                    {"value": 3, "label": "Intent-driven config push across multi-vendor fleet; vendor translation handled automatically"},
-                    {"value": 4, "label": "Continuous autonomous config optimisation across full fleet; no human intervention for routine changes"},
-                    {"value": 5, "label": "Self-configuring CPEs receive and interpret abstract policy objectives directly; no per-device orchestration needed"},
+                    {"value": 0, "label": "Manual CLI per element; engineer logs in to each device individually"},
+                    {"value": 1, "label": "Scripted mass change; engineer reviews the full change list and approves before execution"},
+                    {"value": 2, "label": "Template-based push via NMS/OSS; automated for standard operations, manual for edge cases"},
+                    {"value": 3, "label": "Intent-driven config push across multi-vendor, multi-technology fleet; vendor translation handled automatically"},
+                    {"value": 4, "label": "Continuous autonomous optimisation across the full estate; no human intervention for routine changes"},
+                    {"value": 5, "label": "Network elements receive abstract policy objectives directly; no per-element orchestration needed"},
                 ],
             },
             {
                 "id": "execution_multivendor",
-                "text": "How do you manage configuration across multiple RAN vendors (e.g., Ericsson ENM + Nokia NetAct)?",
+                "text": "How do you manage configuration across multiple vendors and network domains?",
                 "type": "radio",
                 "domain": "execution",
                 "required": True,
                 "options": [
-                    {"value": 0, "label": "Separate teams per vendor; manual coordination and separate change windows"},
-                    {"value": 1, "label": "Centralised NMS provides multi-vendor view; changes still vendor-specific and sequential"},
+                    {"value": 0, "label": "Separate domain/vendor teams; manual coordination and separate change windows per domain"},
+                    {"value": 1, "label": "Centralised OSS provides multi-vendor view; changes still vendor-specific and sequential"},
                     {"value": 2, "label": "Multi-vendor orchestration layer exists; some automation but vendor-specific scripts required"},
-                    {"value": 3, "label": "Vendor-agnostic configuration layer with single policy engine translating to all vendor CLIs"},
-                    {"value": 4, "label": "Full multi-vendor closed-loop: changes executed simultaneously across vendors with automated verification"},
-                    {"value": 5, "label": "Self-integrating: system automatically discovers new vendor equipment and builds adapters without engineering effort"},
+                    {"value": 3, "label": "Vendor-agnostic configuration layer with single policy engine translating to all vendor interfaces"},
+                    {"value": 4, "label": "Full multi-vendor, multi-domain closed-loop: changes executed simultaneously with automated verification"},
+                    {"value": 5, "label": "Self-integrating: system automatically discovers new vendor equipment or domain and builds adapters without engineering effort"},
                 ],
             },
             {
                 "id": "execution_zerotouch",
-                "text": "How do you activate new FWA CPEs (truck roll vs. zero-touch)?",
+                "text": "How do you activate new network elements or services (manual commissioning vs. zero-touch)?",
                 "type": "radio",
                 "domain": "execution",
                 "required": True,
                 "options": [
-                    {"value": 0, "label": "Full truck roll; engineer configures each CPE on-site"},
-                    {"value": 1, "label": "Minimal truck roll; basic provisioning automated but beam optimisation done on-site"},
-                    {"value": 2, "label": "Remote provisioning for most CPEs; placement-specific optimisation still requires an engineer visit"},
-                    {"value": 3, "label": "Zero-touch activation: CPE auto-provisions and optimises placement-specific settings via TR-369 USP in under 60 seconds"},
-                    {"value": 4, "label": "Predictive provisioning: optimal CPE config pre-computed before the device is installed; installer just powers on"},
-                    {"value": 5, "label": "Self-installing CPE: uses onboard intelligence, learns from neighbouring CPEs, requires zero engineer interaction"},
+                    {"value": 0, "label": "Full manual commissioning on-site; engineer configures each element individually"},
+                    {"value": 1, "label": "Partial automation: basic provisioning scripted but site-specific parameters done on-site"},
+                    {"value": 2, "label": "Remote provisioning for most elements; some on-site optimisation still required"},
+                    {"value": 3, "label": "Zero-touch activation: element auto-provisions and self-configures via standard protocol (ZTP, TR-369, NETCONF) in under 10 minutes"},
+                    {"value": 4, "label": "Predictive provisioning: optimal configuration pre-computed before the element is installed; engineer just powers it on"},
+                    {"value": 5, "label": "Fully self-commissioning: element learns from neighbours and network context; zero engineer interaction required"},
                 ],
             },
         ],
@@ -463,48 +492,50 @@ SVAYA_CAPABILITIES = {
         "threshold": 3.0,
     },
     "awareness": {
-        "name": "Multi-Source Telemetry + TypeDB Knowledge Graph",
+        "name": "Multi-Domain Telemetry + TypeDB Knowledge Graph",
         "description": (
-            "Unifies telemetry from TR-369 USP (CPE), vendor NMS PM counters (RAN), "
-            "and ASTRA Probe (hardware) into a single real-time topology graph. "
-            "The TypeDB knowledge graph provides instant cross-domain correlation — "
-            "linking CPE signal quality to cell-site conditions and backhaul health."
+            "Unifies telemetry from 2G/3G/4G/5G RAN PM counters, core network KPIs "
+            "(EPC/5GC/IMS), transport OAM data, and access/CPE telemetry (TR-369 USP) "
+            "into a single real-time topology graph. The TypeDB knowledge graph provides "
+            "instant cross-domain correlation — linking RAN conditions to core load "
+            "and transport health across any vendor mix."
         ),
-        "outcome": "Achieve sub-minute, full-fleet awareness across CPE, RAN, and backhaul — from any vendor mix.",
+        "outcome": "Achieve sub-minute, full-estate awareness across RAN, core, and transport — from any vendor and any generation.",
         "threshold": 2.5,
     },
     "analysis": {
-        "name": "Cross-Vendor RCA Engine (Datalog Deterministic Reasoning)",
+        "name": "Cross-Domain RCA Engine (Datalog Deterministic Reasoning)",
         "description": (
             "ASTRA's reasoning engine uses Datalog inference rules (TypeDB) to trace "
-            "root cause across CPE, RAN, and backhaul without LLM uncertainty. "
-            "Every decision is auditable and explainable. Identifies the four FWA "
-            "uplink failure modes: MIMO rank dilemma, UL/DL asymmetry, PAPR thermal "
-            "stress, and static inter-cell interference."
+            "root cause across RAN, core, and transport without LLM uncertainty. "
+            "Covers 2G/3G/4G/5G failure modes, core session drop analysis, transport "
+            "path degradation, and cross-domain cascading faults. Every decision is "
+            "auditable and explainable."
         ),
-        "outcome": "Reduce MTTR from hours to under 5 minutes for 70–85% of FWA fault categories.",
+        "outcome": "Reduce MTTR from hours to under 5 minutes for 70–85% of multi-domain fault categories.",
         "threshold": 2.5,
     },
     "decision": {
         "name": "Graduated Autonomy Engine (Green / Amber / Red)",
         "description": (
-            "A risk-tiered decision framework: Green actions execute autonomously, "
-            "Amber actions require NOC approval, Red actions require engineering review. "
-            "Boundaries are operator-configurable and narrowed over time as confidence "
-            "builds — providing a governance-safe path from L2 to L4."
+            "A risk-tiered decision framework applicable to all network domains: "
+            "Green actions execute autonomously, Amber requires NOC approval, Red "
+            "requires engineering review. Boundaries are operator-configurable per "
+            "domain and technology generation — providing a governance-safe path "
+            "from L2 to L4 across RAN, core, and transport."
         ),
-        "outcome": "Safe path to L4: start with 20% green actions, reach 80% in 90 days with zero adverse incidents.",
+        "outcome": "Safe path to L4: start with 20% green actions, reach 80% in 90 days with zero adverse incidents across all domains.",
         "threshold": 2.0,
     },
     "execution": {
-        "name": "Multi-Vendor Normalisation Layer + TR-369 USP Orchestration",
+        "name": "Multi-Vendor Normalisation Layer + Zero-Touch Orchestration",
         "description": (
             "ASTRA's MVNL provides vendor-agnostic execution adapters for Ericsson ENM, "
-            "Nokia NetAct, Samsung OSS, and Huawei iMaster NCE. Tier 1 integration uses "
-            "TR-369 USP for zero-touch CPE management — no firmware changes, no per-CPE "
-            "scripts. New CPEs self-provision in under 60 seconds."
+            "Nokia NetAct, Samsung OSS, Huawei iMaster NCE, and open-source OSS/BSS. "
+            "Zero-touch provisioning via ZTP, NETCONF/YANG, and TR-369 USP covers "
+            "2G/3G/4G/5G RAN, core VNFs/CNFs, and transport elements equally."
         ),
-        "outcome": "Reduce truck roll rate by 40–60%. Cut new CPE activation cost by £30–80 per device.",
+        "outcome": "Eliminate per-vendor, per-domain scripting. Reduce service activation time from days to minutes across all network layers.",
         "threshold": 2.5,
     },
 }
