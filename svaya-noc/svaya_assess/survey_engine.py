@@ -1,434 +1,511 @@
 """
-TM Forum Autonomous Networks Maturity Survey Engine
-Aligned to: TM Forum IG1218, IG1230, TR-285
-Five eTOM domains assessed at L0–L4 per TM Forum AN framework.
+ASTRA Network Autonomy Assessment — Survey Engine
+Aligned with TM Forum IG1218 v2.2.0 and IG1252 v1.2.0 (Autonomous Networks
+Levels Evaluation Methodology). Assesses across the five cognitive capability
+dimensions that TM Forum uses to evaluate autonomous network maturity:
+Intent, Awareness, Analysis, Decision, Execution.
 
-TM Forum L0–L4 definitions:
-  L0  Manual operations         — humans perform and decide everything
-  L1  Assisted                  — tools surface data; humans decide and act
-  L2  Partial automation        — system executes routine tasks; human oversight
-  L3  Conditional automation    — intent-driven; human approves exceptions only
-  L4  High automation           — system manages end-to-end; human sets objectives
+Scoring: L0 (Manual) through L5 (Cognitive Autonomous) per IG1218.
 """
 
 from dataclasses import dataclass, field
 
+
 # ---------------------------------------------------------------------------
-# Question bank
-# Each question tagged with a scoring domain (None = profile only, no score)
+# Survey structure
 # ---------------------------------------------------------------------------
 
 SECTIONS = [
+    # ------------------------------------------------------------------ #
+    # 0. Operator profile (no scoring — used for segmentation/benchmark)  #
+    # ------------------------------------------------------------------ #
     {
         "id": "profile",
-        "title": "Network Profile",
-        "subtitle": "Help us understand your organisation and network scale",
+        "title": "About Your Network",
+        "description": "A few questions to tailor your benchmark results.",
         "tmf_ref": None,
         "questions": [
             {
                 "id": "org_type",
                 "text": "What best describes your organisation?",
                 "type": "radio",
-                "required": True,
                 "domain": None,
                 "options": [
-                    {"value": "mno",      "label": "Mobile Network Operator (MNO)"},
-                    {"value": "isp_fwa",  "label": "ISP / FWA-specialised operator"},
-                    {"value": "mvno",     "label": "MVNO"},
-                    {"value": "other",    "label": "Other / Regional operator"},
+                    {"value": "operator",    "label": "Fixed Wireless Access operator / WISP"},
+                    {"value": "mnvo",        "label": "MVNO with own network elements"},
+                    {"value": "integrated",  "label": "Integrated operator (fixed + mobile)"},
+                    {"value": "integrator",  "label": "System integrator / managed service provider"},
                 ],
             },
             {
                 "id": "fwa_subscribers",
-                "text": "How many FWA subscribers do you currently serve?",
+                "text": "How many FWA / fixed wireless subscribers do you currently serve?",
                 "type": "radio",
-                "required": True,
                 "domain": None,
                 "options": [
-                    {"value": "lt_1k",    "label": "Fewer than 1,000"},
-                    {"value": "1k_50k",   "label": "1,000 – 50,000"},
-                    {"value": "50k_500k", "label": "50,000 – 500,000"},
-                    {"value": "gt_500k",  "label": "More than 500,000"},
+                    {"value": "<5k",     "label": "Fewer than 5,000"},
+                    {"value": "5k-50k",  "label": "5,000 – 50,000"},
+                    {"value": "50k-500k","label": "50,000 – 500,000"},
+                    {"value": ">500k",   "label": "More than 500,000"},
                 ],
             },
             {
                 "id": "ran_vendors",
-                "text": "Which RAN vendors are in your network?",
+                "text": "Which RAN vendors are in your network? (select all that apply)",
                 "type": "checkbox",
-                "required": False,
                 "domain": None,
                 "options": [
                     {"value": "ericsson", "label": "Ericsson"},
                     {"value": "nokia",    "label": "Nokia"},
                     {"value": "samsung",  "label": "Samsung"},
                     {"value": "huawei",   "label": "Huawei"},
-                    {"value": "other_ran","label": "Other"},
+                    {"value": "zte",      "label": "ZTE"},
+                    {"value": "other",    "label": "Other / open-source RAN"},
                 ],
             },
             {
-                "id": "cpe_vendors",
-                "text": "Which CPE vendors are in your FWA fleet?",
-                "type": "checkbox",
-                "required": False,
+                "id": "primary_challenge",
+                "text": "What is your biggest operational challenge today?",
+                "type": "radio",
                 "domain": None,
                 "options": [
-                    {"value": "zte",       "label": "ZTE"},
-                    {"value": "inseego",   "label": "Inseego"},
-                    {"value": "nokia_cpe", "label": "Nokia FastMile"},
-                    {"value": "arcadyan",  "label": "Arcadyan"},
-                    {"value": "sagemcom",  "label": "Sagemcom"},
-                    {"value": "huawei_cpe","label": "Huawei CPE"},
-                    {"value": "other_cpe", "label": "Other"},
-                ],
-            },
-            {
-                "id": "vendor_count",
-                "text": "How many different RAN + CPE + backhaul vendors do you manage simultaneously?",
-                "type": "radio",
-                "required": True,
-                "domain": None,
-                "options": [
-                    {"value": "1",   "label": "1 (single-vendor)"},
-                    {"value": "2-3", "label": "2–3 vendors"},
-                    {"value": "4-6", "label": "4–6 vendors"},
-                    {"value": "7+",  "label": "7 or more vendors"},
+                    {"value": "uplink",    "label": "Uplink performance for edge/indoor CPEs"},
+                    {"value": "faults",    "label": "Fault detection and MTTR"},
+                    {"value": "multivendor","label": "Multi-vendor complexity and OPEX"},
+                    {"value": "zerotouch", "label": "Zero-touch provisioning and truck rolls"},
+                    {"value": "energy",    "label": "Energy costs and sustainability targets"},
                 ],
             },
         ],
     },
+
+    # ------------------------------------------------------------------ #
+    # 1. INTENT — Does the system understand and translate business intent? #
+    # IG1252 §4.1 Cognitive Dimension: Intent                              #
+    # ------------------------------------------------------------------ #
     {
-        "id": "fault",
-        "title": "Fault Management",
-        "subtitle": "Detect, diagnose and resolve network faults",
-        "tmf_ref": "eTOM 1.3.6 – Trouble Management",
+        "id": "intent",
+        "title": "Intent — Translating Business Goals into Network Policy",
+        "description": (
+            "This dimension assesses whether your operations can express high-level "
+            "business objectives (QoE targets, energy limits, SLAs) and have those "
+            "automatically translated into actionable network parameters."
+        ),
+        "tmf_ref": "TM Forum IG1252 §4.1 · Intent Cognitive Dimension",
         "questions": [
             {
-                "id": "fault_detection",
-                "text": "How does your team detect FWA network faults today?",
+                "id": "intent_service_objectives",
+                "text": "How do you define and communicate service objectives to your network operations?",
                 "type": "radio",
+                "domain": "intent",
                 "required": True,
-                "domain": "fault",
                 "options": [
-                    {"value": 0, "label": "Manual monitoring — operators check dashboards and act on subscriber complaints"},
-                    {"value": 1, "label": "Automated NMS alerts — threshold-based alarms sent to the NOC"},
-                    {"value": 2, "label": "Correlated alerts — multi-vendor alarms aggregated; some scripted first response"},
-                    {"value": 3, "label": "Predictive — system forecasts faults and proposes actions; human approves before execution"},
-                    {"value": 4, "label": "Autonomous — system detects and resolves faults end-to-end across all vendors"},
+                    {"value": 0, "label": "Informal verbal instructions; no documented SLAs or KPI targets"},
+                    {"value": 1, "label": "Static SLA documents reviewed periodically; operators manually translate targets to network parameters"},
+                    {"value": 2, "label": "Structured KPI dashboards with threshold alerts; operators act on breaches"},
+                    {"value": 3, "label": "Policy-based configuration templates applied automatically when intent conditions are met"},
+                    {"value": 4, "label": "API-driven intent statements (e.g., per-subscriber QoE targets) automatically translated to multi-vendor network parameters"},
+                    {"value": 5, "label": "Self-learning intent engine derives optimal policies from observed subscriber outcomes and autonomously adapts without engineering input"},
                 ],
             },
             {
-                "id": "mttr",
-                "text": "What is your typical Mean Time to Repair (MTTR) for an FWA household outage?",
+                "id": "intent_qoe_translation",
+                "text": "How are QoE targets (e.g., uplink throughput, latency) translated into CPE/RAN configuration?",
                 "type": "radio",
+                "domain": "intent",
                 "required": True,
-                "domain": "fault",
                 "options": [
-                    {"value": 0, "label": "More than 4 hours"},
-                    {"value": 1, "label": "1–4 hours"},
-                    {"value": 2, "label": "30 minutes – 1 hour"},
-                    {"value": 3, "label": "5–30 minutes"},
-                    {"value": 4, "label": "Under 5 minutes (automated resolution)"},
+                    {"value": 0, "label": "Manual CLI commands per CPE; no automation"},
+                    {"value": 1, "label": "Script-assisted bulk changes; engineer reviews each batch before execution"},
+                    {"value": 2, "label": "Template-based configuration push with manual approval gate"},
+                    {"value": 3, "label": "Automated parameter mapping from QoE targets to vendor-specific settings for standard scenarios"},
+                    {"value": 4, "label": "Continuous closed-loop: QoE degradation automatically triggers multi-vendor reconfiguration without human approval"},
+                    {"value": 5, "label": "Intent engine predicts QoE degradation and pre-adapts configuration before subscriber impact occurs"},
                 ],
             },
             {
-                "id": "cross_vendor_alarm",
-                "text": "Do you correlate alarms across RAN, CPE and backhaul vendors in a single view?",
+                "id": "intent_energy_policy",
+                "text": "How are energy efficiency and regulatory mandates incorporated into network policy?",
                 "type": "radio",
+                "domain": "intent",
                 "required": True,
-                "domain": "fault",
                 "options": [
-                    {"value": 0, "label": "No — each vendor's NMS is completely siloed"},
-                    {"value": 1, "label": "Partially — engineers manually cross-reference multiple systems"},
-                    {"value": 2, "label": "Basic — logs exported to a shared dashboard; correlation is still manual"},
-                    {"value": 3, "label": "Yes — automated cross-vendor correlation in our OSS/BSS"},
-                    {"value": 4, "label": "Yes — full root cause analysis across vendors, automatically"},
+                    {"value": 0, "label": "Manual compliance review; ad-hoc network changes"},
+                    {"value": 1, "label": "Documented procedures; human ensures compliance is maintained on every change"},
+                    {"value": 2, "label": "Automated compliance checks on configuration changes against known rules"},
+                    {"value": 3, "label": "Energy and compliance policies automatically enforced alongside QoE optimisation"},
+                    {"value": 4, "label": "Multi-objective autonomous optimisation balances QoE, energy, and regulatory constraints simultaneously"},
+                    {"value": 5, "label": "Regulatory changes are automatically interpreted and network policies updated; system self-certifies compliance"},
                 ],
             },
         ],
     },
+
+    # ------------------------------------------------------------------ #
+    # 2. AWARENESS — Does the system have comprehensive network visibility? #
+    # IG1252 §4.2 Cognitive Dimension: Awareness                          #
+    # ------------------------------------------------------------------ #
     {
-        "id": "performance",
-        "title": "Performance Management",
-        "subtitle": "Monitor, analyse and optimise network KPIs",
-        "tmf_ref": "eTOM 1.3.7 – QoS / SLA Management",
+        "id": "awareness",
+        "title": "Awareness — Real-Time Network State Visibility",
+        "description": (
+            "This dimension assesses the depth and timeliness of your network "
+            "observability — from CPE telemetry through RAN and backhaul, and your "
+            "ability to detect issues before subscribers are impacted."
+        ),
+        "tmf_ref": "TM Forum IG1252 §4.2 · Awareness Cognitive Dimension",
         "questions": [
             {
-                "id": "kpi_review",
-                "text": "How often do you review per-CPE KPIs (SINR, uplink throughput, BLER)?",
+                "id": "awareness_telemetry",
+                "text": "What is your real-time telemetry coverage across your FWA CPE fleet?",
                 "type": "radio",
+                "domain": "awareness",
                 "required": True,
-                "domain": "performance",
                 "options": [
-                    {"value": 0, "label": "Rarely — only when subscribers complain"},
-                    {"value": 1, "label": "Weekly reports generated by the NMS"},
-                    {"value": 2, "label": "Daily dashboards with threshold alerts"},
-                    {"value": 3, "label": "Near-real-time with automated threshold-triggered actions"},
-                    {"value": 4, "label": "Continuous closed-loop optimisation executing automatically"},
+                    {"value": 0, "label": "No real-time data; periodic manual drive tests or customer complaints only"},
+                    {"value": 1, "label": "SNMP traps or TR-069 polling; <50% of fleet covered; 15-minute granularity"},
+                    {"value": 2, "label": "TR-069/TR-369 streaming; 5-minute granularity; most fleet covered"},
+                    {"value": 3, "label": "TR-369 USP streaming + NMS PM counters; 1-minute granularity; full fleet; cross-domain correlation"},
+                    {"value": 4, "label": "Sub-minute telemetry correlated across CPE, RAN, and backhaul; anomalies detected before customer impact"},
+                    {"value": 5, "label": "Predictive awareness via digital twin; model-based anomaly detection before network events actually occur"},
                 ],
             },
             {
-                "id": "uplink_optimisation",
-                "text": "Do you actively optimise FWA uplink parameters (MIMO rank, power headroom, UL/DL ratio)?",
+                "id": "awareness_correlation",
+                "text": "How do you correlate CPE performance with RAN conditions and backhaul health?",
                 "type": "radio",
+                "domain": "awareness",
                 "required": True,
-                "domain": "performance",
                 "options": [
-                    {"value": 0, "label": "No — vendor defaults used; no uplink tuning"},
-                    {"value": 1, "label": "Occasionally during planned maintenance windows"},
-                    {"value": 2, "label": "Via scripts or NMS rules on a subset of CPEs"},
-                    {"value": 3, "label": "Automated per-CPE optimisation triggered by KPI thresholds"},
-                    {"value": 4, "label": "Continuous closed-loop across 100% of CPEs"},
+                    {"value": 0, "label": "Manual correlation by experienced engineers; ad-hoc and slow"},
+                    {"value": 1, "label": "Separate dashboards per domain; operator manually correlates events"},
+                    {"value": 2, "label": "Basic cross-domain views in NMS; limited automation"},
+                    {"value": 3, "label": "Automated cross-domain event correlation; root-cause hypotheses generated automatically"},
+                    {"value": 4, "label": "Real-time topology-aware correlation across CPE, RAN, and backhaul with confidence-scored root-cause identification"},
+                    {"value": 5, "label": "Self-learning correlation model continuously discovers new failure mode patterns autonomously"},
                 ],
             },
             {
-                "id": "interference_management",
-                "text": "How do you handle static inter-cell interference between FWA CPEs?",
+                "id": "awareness_detection_speed",
+                "text": "How quickly do you become aware of subscriber-impacting events?",
                 "type": "radio",
+                "domain": "awareness",
                 "required": True,
-                "domain": "performance",
                 "options": [
-                    {"value": 0, "label": "We don't — it's not a process today"},
-                    {"value": 1, "label": "Identified by NOC engineers during drive tests or subscriber complaints"},
-                    {"value": 2, "label": "Identified from NMS reports; resolved manually via beam or power changes"},
-                    {"value": 3, "label": "System flags interference pairs; engineer approves remediation"},
-                    {"value": 4, "label": "Automated detection and coordinated beam nulling across cell sites"},
+                    {"value": 0, "label": "Customer complaint-driven; often more than 24 hours after impact begins"},
+                    {"value": 1, "label": "NMS alarm within 15 minutes; requires NOC analyst review to assess impact"},
+                    {"value": 2, "label": "Automated alert within 5 minutes with estimated affected subscriber count"},
+                    {"value": 3, "label": "Pre-emptive detection within 1 minute; subscribers not yet impacted when action begins"},
+                    {"value": 4, "label": "Predictive detection: degradation forecast minutes before occurrence; system pre-positions remediation"},
+                    {"value": 5, "label": "Event predicted hours in advance; network self-heals proactively, subscribers never aware"},
                 ],
             },
         ],
     },
+
+    # ------------------------------------------------------------------ #
+    # 3. ANALYSIS — Can the system derive insight and root cause?         #
+    # IG1252 §4.3 Cognitive Dimension: Analysis                           #
+    # ------------------------------------------------------------------ #
     {
-        "id": "configuration",
-        "title": "Configuration Management",
-        "subtitle": "Provision, configure and maintain network elements",
-        "tmf_ref": "eTOM 1.3.4 – Configuration & Activation",
+        "id": "analysis",
+        "title": "Analysis — Root Cause and Impact Reasoning",
+        "description": (
+            "This dimension assesses how well your operations diagnose faults, "
+            "identify root causes across domains, and quantify business impact — "
+            "and how much of that is automated vs. manual."
+        ),
+        "tmf_ref": "TM Forum IG1252 §4.3 · Analysis Cognitive Dimension",
         "questions": [
             {
-                "id": "config_change",
-                "text": "How do you push configuration changes to your RAN and CPE fleet?",
+                "id": "analysis_rca",
+                "text": "How do you diagnose the root cause of FWA performance degradation?",
                 "type": "radio",
+                "domain": "analysis",
                 "required": True,
-                "domain": "configuration",
                 "options": [
-                    {"value": 0, "label": "Manual CLI — engineers SSH into individual elements one at a time"},
-                    {"value": 1, "label": "Vendor NMS GUI — changes made through each vendor's management console separately"},
-                    {"value": 2, "label": "Scripts / automation tools — batch changes scripted, but still per-vendor"},
-                    {"value": 3, "label": "Policy-driven intent — changes defined once in OSS; system translates to vendor commands"},
-                    {"value": 4, "label": "Fully autonomous — system self-configures based on observed conditions"},
+                    {"value": 0, "label": "Engineer manually inspects logs; diagnosis takes hours to days"},
+                    {"value": 1, "label": "Rule-based alarm correlation; engineer selects likely cause from a checklist"},
+                    {"value": 2, "label": "Pattern-matching RCA system suggests probable causes; engineer validates selection"},
+                    {"value": 3, "label": "AI-assisted RCA identifies root cause across domains with 70–85% confidence; reasoning is auditable"},
+                    {"value": 4, "label": "Deterministic reasoning engine traces root cause across CPE, RAN, and backhaul with full audit trail in under 60 seconds"},
+                    {"value": 5, "label": "Proactive analysis identifies emerging failure patterns and resolves root cause before the first subscriber is impacted"},
                 ],
             },
             {
-                "id": "tr369_support",
-                "text": "What is the TR-369 (USP) or TR-069 (CWMP) status in your CPE fleet?",
+                "id": "analysis_alarm_storms",
+                "text": "How do you manage alarm storms (mass simultaneous events from a single root cause)?",
                 "type": "radio",
+                "domain": "analysis",
                 "required": True,
-                "domain": "configuration",
                 "options": [
-                    {"value": 0, "label": "Not assessed / don't know"},
-                    {"value": 1, "label": "TR-069 (CWMP) on some CPEs, no active ACS"},
-                    {"value": 2, "label": "TR-069 on most CPEs with an active ACS deployed"},
-                    {"value": 3, "label": "TR-369 (USP) on newer CPEs; TR-069 fallback on legacy fleet"},
-                    {"value": 4, "label": "TR-369 fully deployed — using USP for real-time telemetry and control"},
+                    {"value": 0, "label": "Each alarm handled individually; NOC is overwhelmed during storms"},
+                    {"value": 1, "label": "Basic deduplication by alarm type; manual grouping by experienced engineers"},
+                    {"value": 2, "label": "Automated grouping by topology proximity; root-cause hypothesis is presented to NOC"},
+                    {"value": 3, "label": "Intelligent suppression presents a single root-cause alarm plus impacted subscriber count"},
+                    {"value": 4, "label": "Zero alarm storm reaches NOC; root cause identified and actioned before secondary alarms trigger"},
+                    {"value": 5, "label": "Pre-emptive suppression: system resolves the root cause before any alarms fire"},
+                ],
+            },
+            {
+                "id": "analysis_business_impact",
+                "text": "Can you quantify the business impact (revenue, churn risk) of a network event in real time?",
+                "type": "radio",
+                "domain": "analysis",
+                "required": True,
+                "options": [
+                    {"value": 0, "label": "No impact quantification; engineers focus on technical metrics only"},
+                    {"value": 1, "label": "Post-incident report estimates affected subscriber-hours; reviewed weekly"},
+                    {"value": 2, "label": "Real-time impacted subscriber count visible during incidents"},
+                    {"value": 3, "label": "Automated churn-risk scoring per subscriber during degradation events"},
+                    {"value": 4, "label": "Revenue impact and churn probability continuously updated and used to prioritise automation actions"},
+                    {"value": 5, "label": "Predictive churn prevention: network self-optimises to maximise subscriber lifetime value autonomously"},
                 ],
             },
         ],
     },
+
+    # ------------------------------------------------------------------ #
+    # 4. DECISION — Can the system generate and validate remediation?     #
+    # IG1252 §4.4 Cognitive Dimension: Decision                           #
+    # ------------------------------------------------------------------ #
     {
-        "id": "fulfillment",
-        "title": "Service Fulfillment",
-        "subtitle": "Activate and manage FWA subscriber services",
-        "tmf_ref": "eTOM 1.3.3 – Service Configuration & Activation",
+        "id": "decision",
+        "title": "Decision — Autonomous Remediation and Governance",
+        "description": (
+            "This dimension assesses how optimisation decisions are made, approved, "
+            "and audited — and the degree to which your governance framework permits "
+            "autonomous action vs. requiring human approval."
+        ),
+        "tmf_ref": "TM Forum IG1252 §4.4 · Decision Cognitive Dimension",
         "questions": [
             {
-                "id": "cpe_activation",
-                "text": "How do you activate a new FWA CPE for a subscriber today?",
+                "id": "decision_approval",
+                "text": "How are optimisation actions decided and approved in your operations?",
                 "type": "radio",
+                "domain": "decision",
                 "required": True,
-                "domain": "fulfillment",
                 "options": [
-                    {"value": 0, "label": "Engineer visit required — manual on-site configuration every time"},
-                    {"value": 1, "label": "Pre-configured device shipped; call-centre agent walks subscriber through setup"},
-                    {"value": 2, "label": "Subscriber self-install; online portal or app assists configuration"},
-                    {"value": 3, "label": "Zero-touch: CPE auto-registers using pre-provisioned profile — no human interaction"},
-                    {"value": 4, "label": "Autonomous: CPE registers, configures, and optimises placement-specific settings automatically"},
+                    {"value": 0, "label": "Senior engineer makes all decisions manually; no automation"},
+                    {"value": 1, "label": "NOC analyst selects from a list of recommended actions and approves each one"},
+                    {"value": 2, "label": "Automation proposes actions with risk score; team lead must approve before execution"},
+                    {"value": 3, "label": "Tiered governance: low-risk auto-approved (green), medium-risk NOC approval (amber), high-risk engineering review (red)"},
+                    {"value": 4, "label": "Policy-bounded autonomy: system executes within a pre-approved envelope; humans monitor outcomes only"},
+                    {"value": 5, "label": "Fully autonomous: system adapts its own decision boundaries based on outcome learning within regulatory limits"},
                 ],
             },
             {
-                "id": "truck_roll_rate",
-                "text": "What percentage of new FWA activations still require an engineer truck roll?",
+                "id": "decision_rollback",
+                "text": "How is rollback handled when an automated change degrades performance?",
                 "type": "radio",
+                "domain": "decision",
                 "required": True,
-                "domain": "fulfillment",
                 "options": [
-                    {"value": 0, "label": "More than 80%"},
-                    {"value": 1, "label": "50–80%"},
-                    {"value": 2, "label": "20–50%"},
-                    {"value": 3, "label": "5–20%"},
-                    {"value": 4, "label": "Less than 5% — near-zero touch"},
+                    {"value": 0, "label": "Manual rollback requires engineering effort; no automated capability"},
+                    {"value": 1, "label": "Rollback scripts are available but must be manually triggered by an engineer"},
+                    {"value": 2, "label": "Automated rollback triggered by threshold breach within a defined time window"},
+                    {"value": 3, "label": "Instant rollback with root-cause analysis explaining why the change failed"},
+                    {"value": 4, "label": "Predictive rollback: system detects degradation trajectory and reverts before the threshold is breached"},
+                    {"value": 5, "label": "No rollback needed: digital twin pre-validates every change before execution; bad changes never reach production"},
+                ],
+            },
+            {
+                "id": "decision_audit",
+                "text": "Can your team track and audit every automated decision with its full rationale?",
+                "type": "radio",
+                "domain": "decision",
+                "required": True,
+                "options": [
+                    {"value": 0, "label": "No audit trail; decisions are undocumented"},
+                    {"value": 1, "label": "Change logs with engineer notes; rationale is informal"},
+                    {"value": 2, "label": "Automated change log; trigger conditions recorded but no decision rationale captured"},
+                    {"value": 3, "label": "Each automated action logged with trigger condition, expected outcome, and approver"},
+                    {"value": 4, "label": "Full explainable AI audit trail: every decision traceable to input data, rule fired, and confidence score"},
+                    {"value": 5, "label": "Decision audit fed into continuous learning; model improves measurably from every action taken"},
                 ],
             },
         ],
     },
+
+    # ------------------------------------------------------------------ #
+    # 5. EXECUTION — Can the system apply changes with zero-touch?        #
+    # IG1252 §4.5 Cognitive Dimension: Execution                          #
+    # ------------------------------------------------------------------ #
     {
-        "id": "energy",
-        "title": "Energy Management",
-        "subtitle": "Monitor and optimise energy consumption across your network",
-        "tmf_ref": "eTOM 1.3.14 – Resource Sustainability",
+        "id": "execution",
+        "title": "Execution — Zero-Touch Multi-Vendor Orchestration",
+        "description": (
+            "This dimension assesses your ability to apply configuration changes "
+            "across a multi-vendor fleet with zero or minimal human intervention — "
+            "from routine optimisation through to zero-touch CPE activation."
+        ),
+        "tmf_ref": "TM Forum IG1252 §4.5 · Execution Cognitive Dimension",
         "questions": [
             {
-                "id": "energy_monitoring",
-                "text": "How do you currently monitor energy consumption at cell site and CPE level?",
+                "id": "execution_config_push",
+                "text": "How are configuration changes pushed to your FWA CPE fleet?",
                 "type": "radio",
+                "domain": "execution",
                 "required": True,
-                "domain": "energy",
                 "options": [
-                    {"value": 0, "label": "No energy monitoring at network element level"},
-                    {"value": 1, "label": "Site-level power monitoring via utility meters only"},
-                    {"value": 2, "label": "Per-sector energy from NMS; manual reporting"},
-                    {"value": 3, "label": "Automated energy dashboards with anomaly alerts"},
-                    {"value": 4, "label": "Closed-loop: automatic carrier shutdown, traffic steering, CPE power management"},
+                    {"value": 0, "label": "Manual CLI per CPE via SSH; engineer on-site or remote desktop per device"},
+                    {"value": 1, "label": "Scripted mass change; engineer reviews list and approves before execution"},
+                    {"value": 2, "label": "Template-based push via NMS; automated for standard operations, manual for edge cases"},
+                    {"value": 3, "label": "Intent-driven config push across multi-vendor fleet; vendor translation handled automatically"},
+                    {"value": 4, "label": "Continuous autonomous config optimisation across full fleet; no human intervention for routine changes"},
+                    {"value": 5, "label": "Self-configuring CPEs receive and interpret abstract policy objectives directly; no per-device orchestration needed"},
+                ],
+            },
+            {
+                "id": "execution_multivendor",
+                "text": "How do you manage configuration across multiple RAN vendors (e.g., Ericsson ENM + Nokia NetAct)?",
+                "type": "radio",
+                "domain": "execution",
+                "required": True,
+                "options": [
+                    {"value": 0, "label": "Separate teams per vendor; manual coordination and separate change windows"},
+                    {"value": 1, "label": "Centralised NMS provides multi-vendor view; changes still vendor-specific and sequential"},
+                    {"value": 2, "label": "Multi-vendor orchestration layer exists; some automation but vendor-specific scripts required"},
+                    {"value": 3, "label": "Vendor-agnostic configuration layer with single policy engine translating to all vendor CLIs"},
+                    {"value": 4, "label": "Full multi-vendor closed-loop: changes executed simultaneously across vendors with automated verification"},
+                    {"value": 5, "label": "Self-integrating: system automatically discovers new vendor equipment and builds adapters without engineering effort"},
+                ],
+            },
+            {
+                "id": "execution_zerotouch",
+                "text": "How do you activate new FWA CPEs (truck roll vs. zero-touch)?",
+                "type": "radio",
+                "domain": "execution",
+                "required": True,
+                "options": [
+                    {"value": 0, "label": "Full truck roll; engineer configures each CPE on-site"},
+                    {"value": 1, "label": "Minimal truck roll; basic provisioning automated but beam optimisation done on-site"},
+                    {"value": 2, "label": "Remote provisioning for most CPEs; placement-specific optimisation still requires an engineer visit"},
+                    {"value": 3, "label": "Zero-touch activation: CPE auto-provisions and optimises placement-specific settings via TR-369 USP in under 60 seconds"},
+                    {"value": 4, "label": "Predictive provisioning: optimal CPE config pre-computed before the device is installed; installer just powers on"},
+                    {"value": 5, "label": "Self-installing CPE: uses onboard intelligence, learns from neighbouring CPEs, requires zero engineer interaction"},
                 ],
             },
         ],
     },
+
+    # ------------------------------------------------------------------ #
+    # 6. Contact                                                          #
+    # ------------------------------------------------------------------ #
     {
         "id": "contact",
-        "title": "Get Your Report",
-        "subtitle": "We'll send your full PDF report and keep you informed about Svaya",
+        "title": "Get Your Results",
+        "description": "We'll show your results immediately and send a PDF copy.",
         "tmf_ref": None,
         "questions": [
-            {
-                "id": "contact_name",
-                "text": "Your name",
-                "type": "text",
-                "required": True,
-                "domain": None,
-                "placeholder": "Jane Smith",
-            },
-            {
-                "id": "company",
-                "text": "Company / Organisation",
-                "type": "text",
-                "required": True,
-                "domain": None,
-                "placeholder": "Acme Telecom",
-            },
-            {
-                "id": "email",
-                "text": "Work email",
-                "type": "email",
-                "required": True,
-                "domain": None,
-                "placeholder": "jane@acmetelecom.com",
-            },
-            {
-                "id": "phone",
-                "text": "Phone (optional)",
-                "type": "text",
-                "required": False,
-                "domain": None,
-                "placeholder": "+1 555 000 0000",
-            },
-            {
-                "id": "probe_consent",
-                "text": "Would you like Svaya to perform a live network readiness check?",
-                "type": "radio",
-                "required": True,
-                "domain": None,
-                "options": [
-                    {"value": "yes", "label": "Yes — I'll provide my NMS endpoint details on the next screen"},
-                    {"value": "no",  "label": "No — show my maturity score now"},
-                ],
-            },
+            {"id": "contact_name", "text": "Your name",    "type": "text",  "domain": None, "placeholder": "Jane Smith"},
+            {"id": "company",      "text": "Company",      "type": "text",  "domain": None, "placeholder": "ACME Networks"},
+            {"id": "email",        "text": "Work email",   "type": "email", "domain": None, "placeholder": "jane@acmenetworks.com"},
+            {"id": "phone",        "text": "Phone number", "type": "text",  "domain": None, "placeholder": "+44 7700 000000"},
         ],
     },
 ]
 
 
 # ---------------------------------------------------------------------------
-# Industry benchmarks (FWA operators, TM Forum 2025 survey data estimates)
+# Benchmark data (based on TM Forum IG1218 industry surveys & Bain 2024)
+# Scale: 0.0 – 5.0  (L0 – L5)
 # ---------------------------------------------------------------------------
+
 BENCHMARKS = {
-    "fault":         {"avg": 1.4, "top_quartile": 2.8},
-    "performance":   {"avg": 1.2, "top_quartile": 2.5},
-    "configuration": {"avg": 1.5, "top_quartile": 2.9},
-    "fulfillment":   {"avg": 1.8, "top_quartile": 3.1},
-    "energy":        {"avg": 0.9, "top_quartile": 2.2},
+    "intent":     {"avg": 0.9,  "top_quartile": 2.0},
+    "awareness":  {"avg": 1.5,  "top_quartile": 2.5},
+    "analysis":   {"avg": 1.0,  "top_quartile": 2.2},
+    "decision":   {"avg": 0.8,  "top_quartile": 1.8},
+    "execution":  {"avg": 1.3,  "top_quartile": 2.3},
 }
 
 DOMAIN_LABELS = {
-    "fault":         "Fault Management",
-    "performance":   "Performance Management",
-    "configuration": "Configuration Management",
-    "fulfillment":   "Service Fulfillment",
-    "energy":        "Energy Management",
+    "intent":    "Intent",
+    "awareness": "Awareness",
+    "analysis":  "Analysis",
+    "decision":  "Decision",
+    "execution": "Execution",
 }
 
 LEVEL_LABELS = {
     0: "L0 — Manual",
     1: "L1 — Assisted",
     2: "L2 — Partial Automation",
-    3: "L3 — Conditional Automation",
-    4: "L4 — High Automation",
+    3: "L3 — Conditional Autonomy",
+    4: "L4 — Highly Autonomous",
+    5: "L5 — Cognitive Autonomous",
 }
 
-LEVEL_COLORS = {0: "#ef4444", 1: "#f97316", 2: "#eab308", 3: "#3b82f6", 4: "#22c55e"}
-
+LEVEL_COLORS = {
+    0: "#94a3b8",
+    1: "#ef4444",
+    2: "#f97316",
+    3: "#eab308",
+    4: "#3b82f6",
+    5: "#7c3aed",
+}
 
 # ---------------------------------------------------------------------------
-# Svaya gap-to-capability mapping
+# Svaya capability mapping per cognitive dimension
 # ---------------------------------------------------------------------------
+
 SVAYA_CAPABILITIES = {
-    "fault": {
-        "name": "ASTRA Cross-Vendor RCA Engine",
+    "intent": {
+        "name": "ASTRA Intent & Policy Engine",
         "description": (
-            "Correlates alarms across Ericsson, Nokia, Samsung and Huawei in real time. "
-            "Deterministic Datalog reasoning (TypeDB) traces root cause across CPE, RAN and backhaul "
-            "without relying on statistical ML — so every decision can be audited and explained."
+            "Translates high-level business objectives — QoE targets, energy limits, "
+            "churn-risk thresholds — into vendor-specific network parameters across "
+            "Ericsson, Nokia, Samsung, and Huawei simultaneously. Intent is expressed "
+            "once and continuously enforced via closed-loop feedback."
+        ),
+        "outcome": "Eliminate per-vendor policy scripting. Reduce intent-to-execution lag from days to seconds.",
+        "threshold": 3.0,
+    },
+    "awareness": {
+        "name": "Multi-Source Telemetry + TypeDB Knowledge Graph",
+        "description": (
+            "Unifies telemetry from TR-369 USP (CPE), vendor NMS PM counters (RAN), "
+            "and ASTRA Probe (hardware) into a single real-time topology graph. "
+            "The TypeDB knowledge graph provides instant cross-domain correlation — "
+            "linking CPE signal quality to cell-site conditions and backhaul health."
+        ),
+        "outcome": "Achieve sub-minute, full-fleet awareness across CPE, RAN, and backhaul — from any vendor mix.",
+        "threshold": 2.5,
+    },
+    "analysis": {
+        "name": "Cross-Vendor RCA Engine (Datalog Deterministic Reasoning)",
+        "description": (
+            "ASTRA's reasoning engine uses Datalog inference rules (TypeDB) to trace "
+            "root cause across CPE, RAN, and backhaul without LLM uncertainty. "
+            "Every decision is auditable and explainable. Identifies the four FWA "
+            "uplink failure modes: MIMO rank dilemma, UL/DL asymmetry, PAPR thermal "
+            "stress, and static inter-cell interference."
         ),
         "outcome": "Reduce MTTR from hours to under 5 minutes for 70–85% of FWA fault categories.",
-        "threshold": 2.0,  # Recommend when domain score < threshold
-    },
-    "performance": {
-        "name": "Uplink Intelligence Engine",
-        "description": (
-            "Solves the four FWA uplink challenges: MIMO rank optimisation, UL/DL coverage asymmetry, "
-            "PAPR-driven thermal stress, and static inter-cell interference. "
-            "Tier 1 (TR-369, zero vendor dependency) delivers 85–90% of the optimisation value "
-            "with no CPE firmware changes required."
-        ),
-        "outcome": "Recover 15–30% uplink throughput for edge CPEs; reduce subscriber churn by 20–40%.",
         "threshold": 2.5,
     },
-    "configuration": {
-        "name": "Multi-Vendor Normalisation Layer (MVNL)",
+    "decision": {
+        "name": "Graduated Autonomy Engine (Green / Amber / Red)",
         "description": (
-            "A vendor-agnostic configuration layer with adapters for every major RAN NMS "
-            "(Ericsson ENM, Nokia NetAct, Samsung OSS, Huawei iMaster NCE) and CPE protocol "
-            "(TR-369 USP, TR-069 CWMP). Write once — execute across your entire multi-vendor fleet."
+            "A risk-tiered decision framework: Green actions execute autonomously, "
+            "Amber actions require NOC approval, Red actions require engineering review. "
+            "Boundaries are operator-configurable and narrowed over time as confidence "
+            "builds — providing a governance-safe path from L2 to L4."
         ),
-        "outcome": "Eliminate per-vendor scripting overhead. Reduce config change OPEX by 40–60%.",
+        "outcome": "Safe path to L4: start with 20% green actions, reach 80% in 90 days with zero adverse incidents.",
         "threshold": 2.0,
     },
-    "fulfillment": {
-        "name": "Tier 1 TR-369 CPE Management",
+    "execution": {
+        "name": "Multi-Vendor Normalisation Layer + TR-369 USP Orchestration",
         "description": (
-            "Zero-touch CPE activation using the TR-369 (USP) standard — supported by every modern "
-            "FWA CPE without firmware changes. Svaya acts as the USP Controller: CPEs auto-register, "
-            "receive their subscriber profile, and optimise placement-specific beam settings "
-            "within 60 seconds of being powered on."
+            "ASTRA's MVNL provides vendor-agnostic execution adapters for Ericsson ENM, "
+            "Nokia NetAct, Samsung OSS, and Huawei iMaster NCE. Tier 1 integration uses "
+            "TR-369 USP for zero-touch CPE management — no firmware changes, no per-CPE "
+            "scripts. New CPEs self-provision in under 60 seconds."
         ),
-        "outcome": "Reduce truck roll rate by 40–60%. Cut new subscriber activation cost by £30–80 per CPE.",
+        "outcome": "Reduce truck roll rate by 40–60%. Cut new CPE activation cost by £30–80 per device.",
         "threshold": 2.5,
-    },
-    "energy": {
-        "name": "Energy Efficiency Module",
-        "description": (
-            "Automated carrier shutdown during off-peak hours, traffic-aware beam management, "
-            "and CPE transmit power optimisation. Closed-loop energy policy executes against "
-            "operator-defined objectives (QoE vs. energy trade-off weights) per Household Outcome Profile."
-        ),
-        "outcome": "Reduce RAN energy consumption by 15–25% with no QoE degradation during peak hours.",
-        "threshold": 1.5,
     },
 }
 
@@ -439,17 +516,17 @@ SVAYA_CAPABILITIES = {
 
 @dataclass
 class MaturityScore:
-    domains: dict = field(default_factory=dict)   # {domain: float L0–L4}
+    domains: dict = field(default_factory=dict)   # {domain: float L0–L5}
     overall: float = 0.0
     level: str = "L0"
-    gaps: list = field(default_factory=list)       # domains scoring below threshold
+    gaps: list = field(default_factory=list)
     recommendations: list = field(default_factory=list)
 
 
 def score_answers(answers: dict) -> MaturityScore:
     """
-    Calculate TM Forum L0–L4 maturity score from survey answers.
-    answers: {question_id: value}  (value is 0–4 int for scored questions)
+    Calculate TM Forum L0–L5 maturity score from survey answers.
+    answers: {question_id: value}  (value is 0–5 int for scored questions)
     """
     domain_values: dict[str, list] = {}
 
@@ -473,8 +550,8 @@ def score_answers(answers: dict) -> MaturityScore:
     }
 
     overall = round(sum(domain_scores.values()) / len(domain_scores), 2) if domain_scores else 0.0
-    level_int = min(4, int(overall))
-    level = f"L{level_int}"
+    level_int = min(5, int(overall))
+    level = LEVEL_LABELS.get(level_int, "L0 — Manual")
 
     # Identify gaps and map to Svaya capabilities
     gaps = []
@@ -485,19 +562,19 @@ def score_answers(answers: dict) -> MaturityScore:
         if score < cap["threshold"]:
             gaps.append(domain)
             recommendations.append({
-                "domain": DOMAIN_LABELS.get(domain, domain),
-                "domain_key": domain,
-                "current_score": score,
-                "target_score": int(cap["threshold"]) + 1,
-                "benchmark_avg": bench.get("avg", 0),
-                "benchmark_top": bench.get("top_quartile", 0),
+                "domain":          DOMAIN_LABELS.get(domain, domain),
+                "domain_key":      domain,
+                "current_score":   score,
+                "target_score":    int(cap["threshold"]) + 1,
+                "benchmark_avg":   bench.get("avg", 0),
+                "benchmark_top":   bench.get("top_quartile", 0),
                 "gap_to_benchmark": round(bench.get("avg", 0) - score, 2),
-                "capability": cap["name"],
-                "description": cap["description"],
-                "outcome": cap["outcome"],
+                "capability":      cap["name"],
+                "description":     cap["description"],
+                "outcome":         cap["outcome"],
             })
 
-    # Sort by biggest gap first
+    # Sort by biggest gap to benchmark first
     recommendations.sort(key=lambda r: r["gap_to_benchmark"], reverse=True)
 
     return MaturityScore(
@@ -510,13 +587,13 @@ def score_answers(answers: dict) -> MaturityScore:
 
 
 def level_label(score: float) -> str:
-    return LEVEL_LABELS.get(min(4, int(score)), "L0 — Manual")
+    return LEVEL_LABELS.get(min(5, int(score)), "L0 — Manual")
 
 
-def bar_pct(score: float) -> int:
-    return int((score / 4.0) * 100)
+def bar_pct(score: float, max_score: float = 5.0) -> int:
+    return int((score / max_score) * 100)
 
 
-def benchmark_pct(domain: str, key: str = "avg") -> int:
+def benchmark_pct(domain: str, key: str = "avg", max_score: float = 5.0) -> int:
     val = BENCHMARKS.get(domain, {}).get(key, 0)
-    return int((val / 4.0) * 100)
+    return int((val / max_score) * 100)

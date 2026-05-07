@@ -36,11 +36,12 @@ _C = {
 }
 
 _LEVEL_COLORS = {
-    0: (180, 180, 180),
+    0: (148, 163, 184),
     1: (239,  68,  68),
-    2: (245, 158,  11),
-    3: (34,  140,  80),
-    4: (0,   80,  160),
+    2: (249, 115,  22),
+    3: (234, 179,   8),
+    4: (59,  130, 246),
+    5: (124,  58, 237),
 }
 
 _READINESS_COLORS = {
@@ -219,8 +220,9 @@ def generate_pdf(
     pdf.multi_cell(
         0, 5,
         "This report benchmarks your network operations against the TM Forum Autonomous Networks "
-        "framework (IG1218 / IG1230). It scores your current autonomy level across five eTOM "
-        "domains, identifies gaps where Svaya ASTRA can accelerate your automation journey, and "
+        "framework (IG1218 v2.2.0 / IG1252 v1.2.0). It scores your current autonomy level across "
+        "the five cognitive dimensions defined in IG1252 (Intent, Awareness, Analysis, Decision, "
+        "Execution), identifies gaps where Svaya ASTRA can accelerate your automation journey, and "
         "(where consented) summarises the results of a live network readiness probe.",
     )
     pdf.set_text_color(*_C["text_dark"])
@@ -245,25 +247,26 @@ def generate_pdf(
 
     for domain, label in DOMAIN_LABELS.items():
         score = domain_scores.get(domain, 0)
-        bench = BENCHMARKS.get(domain, {}).get("avg", 1.2)
-        _bar(pdf, label, score, bench)
+        bench = BENCHMARKS.get(domain, {}).get("avg", 1.0)
+        _bar(pdf, label, score, bench, max_score=5.0)
         pdf.ln(3)
 
     pdf.ln(4)
     pdf.set_font("Helvetica", "", 8)
     pdf.set_text_color(*_C["text_mid"])
-    pdf.cell(0, 5, "Tick mark (|) indicates industry average. Top-quartile operators score ≥2.5.")
+    pdf.cell(0, 5, "Tick mark (|) = industry average. Scale L0–L5 per TM Forum IG1218 v2.2.0 / IG1252 v1.2.0.")
     pdf.set_text_color(*_C["text_dark"])
     pdf.ln(8)
 
     # Level descriptions
-    _section_title(pdf, "Autonomy Level Reference")
+    _section_title(pdf, "Autonomy Level Reference  (TM Forum IG1218 v2.2.0)")
     levels = [
-        ("L0", "Manual",         "All operations require human intervention."),
-        ("L1", "Assisted",       "Monitoring with rule-based alerts; human acts on recommendations."),
-        ("L2", "Partial",        "Closed-loop automation for routine tasks; humans handle exceptions."),
-        ("L3", "Conditional",    "Intent-based automation; operator approves edge cases."),
-        ("L4", "Full Autonomy",  "Self-optimising network; operator monitors outcomes only."),
+        ("L0", "Manual",               "All operations require human intervention."),
+        ("L1", "Assisted",             "Monitoring with rule-based alerts; human acts on recommendations."),
+        ("L2", "Partial Automation",   "Closed-loop automation for routine tasks; humans handle exceptions."),
+        ("L3", "Conditional Autonomy", "Intent-based automation; operator approves edge cases."),
+        ("L4", "Highly Autonomous",    "Self-optimising within policy bounds; operator monitors outcomes only."),
+        ("L5", "Cognitive Autonomous", "Self-evolving; system learns and adapts its own policy boundaries."),
     ]
     for lv, name, desc in levels:
         pdf.set_font("Helvetica", "B", 9)
