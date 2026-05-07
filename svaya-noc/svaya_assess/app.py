@@ -1,6 +1,6 @@
 """
 Svaya ASTRA Assessment Tool — Flask application.
-Standalone marketing tool: TM Forum L0-L4 survey + optional live network probe.
+Standalone marketing tool: TM Forum L0–L5 survey + conversational assistant + live probe.
 """
 
 import json
@@ -10,6 +10,7 @@ import sys
 from flask import (
     Flask,
     abort,
+    jsonify,
     make_response,
     redirect,
     render_template,
@@ -19,6 +20,17 @@ from flask import (
 
 sys.path.insert(0, os.path.dirname(__file__))
 
+from bot.orchestrator import (
+    handle_contact_submit,
+    handle_evidence,
+    handle_free_text,
+    handle_option_select,
+    handle_probe_inputs,
+    handle_skill_select,
+    start_session,
+    _ANTHROPIC_KEY,
+)
+from bot.session import get_session
 from lead_store import get_lead, save_lead
 from network_probe import probe_to_dict, run_probe
 from report_gen import generate_pdf
@@ -46,6 +58,74 @@ app.secret_key = os.getenv("FLASK_SECRET", "svaya-assess-dev-secret")
 @app.route("/")
 def landing():
     return render_template("landing.html")
+
+
+# ---------------------------------------------------------------------------
+# Chat assistant
+# ---------------------------------------------------------------------------
+
+@app.route("/chat")
+def chat():
+    sid, welcome = start_session()
+    return render_template(
+        "chat.html",
+        session_id=sid,
+        has_llm=bool(_ANTHROPIC_KEY),
+        initial_messages=[welcome],
+    )
+
+
+@app.route("/chat/<sid>/skill", methods=["POST"])
+def chat_skill(sid: str):
+    data = request.get_json(silent=True) or {}
+    messages = handle_skill_select(sid, data.get("skill_id", ""))
+    return jsonify({"messages": messages})
+
+
+@app.route("/chat/<sid>/option", methods=["POST"])
+def chat_option(sid: str):
+    data = request.get_json(silent=True) or {}
+    messages = handle_option_select(
+        sid,
+        data.get("criterion_id", ""),
+        data.get("scenario_id", ""),
+        int(data.get("level", 0)),
+        data.get("option_text", ""),
+    )
+    return jsonify({"messages": messages})
+
+
+@app.route("/chat/<sid>/evidence", methods=["POST"])
+def chat_evidence(sid: str):
+    data = request.get_json(silent=True) or {}
+    messages = handle_evidence(
+        sid,
+        data.get("criterion_id", ""),
+        data.get("scenario_id", ""),
+        data.get("evidence_text", ""),
+    )
+    return jsonify({"messages": messages})
+
+
+@app.route("/chat/<sid>/message", methods=["POST"])
+def chat_message(sid: str):
+    data = request.get_json(silent=True) or {}
+    messages = handle_free_text(sid, data.get("text", ""))
+    return jsonify({"messages": messages})
+
+
+@app.route("/chat/<sid>/contact", methods=["POST"])
+def chat_contact(sid: str):
+    data = request.get_json(silent=True) or {}
+    messages = handle_contact_submit(sid, data)
+    return jsonify({"messages": messages})
+
+
+@app.route("/chat/<sid>/probe", methods=["POST"])
+def chat_probe(sid: str):
+    data = request.get_json(silent=True) or {}
+    messages = handle_probe_inputs(sid, data)
+    return jsonify({"messages": messages})
 
 
 # ---------------------------------------------------------------------------

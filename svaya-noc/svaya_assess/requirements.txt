@@ -3,3 +3,4 @@ requests>=2.31
 fpdf2>=2.7
 python-dotenv>=1.0
 gunicorn>=21.2
+anthropic>=0.40   # optional — enables LLM mode; works without it (stub mode)

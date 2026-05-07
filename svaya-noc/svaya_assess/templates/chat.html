@@ -1,0 +1,423 @@
+{% extends "base.html" %}
+{% block title %}ASTRA Assessment Assistant | Svaya{% endblock %}
+
+{% block head_extra %}
+<style>
+  #chat-window {
+    height: calc(100vh - 220px);
+    min-height: 480px;
+    overflow-y: auto;
+    scroll-behavior: smooth;
+  }
+  .bubble-assistant {
+    background: #F0F4FA;
+    border-radius: 0 16px 16px 16px;
+    max-width: 85%;
+  }
+  .bubble-user {
+    background: #0050A0;
+    color: #fff;
+    border-radius: 16px 0 16px 16px;
+    max-width: 85%;
+  }
+  .option-btn {
+    transition: all 0.15s;
+    cursor: pointer;
+    text-align: left;
+    border: 2px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 10px 14px;
+    background: #fff;
+  }
+  .option-btn:hover { border-color: #0050A0; background: #EFF6FF; }
+  .option-btn.selected { border-color: #0050A0; background: #EFF6FF; }
+  .level-pill {
+    font-size: 10px; font-weight: 700;
+    padding: 2px 7px; border-radius: 20px;
+    margin-right: 6px; display: inline-block;
+    color: #fff;
+  }
+  .progress-bar-inner { transition: width 0.5s ease; }
+  .skill-card {
+    cursor: pointer; border: 2px solid #e2e8f0;
+    border-radius: 14px; padding: 16px;
+    background: #fff; transition: all 0.15s;
+  }
+  .skill-card:hover { border-color: #0050A0; background: #EFF6FF; }
+  .probe-ok   { color: #22C55E; font-weight: 700; }
+  .probe-warn { color: #F59E0B; font-weight: 700; }
+  .probe-fail { color: #EF4444; font-weight: 700; }
+  .probe-skip { color: #94A3B8; font-weight: 700; }
+  .typing-dot { display:inline-block; width:8px; height:8px; border-radius:50%;
+    background:#94a3b8; animation: blink 1.4s infinite both; }
+  .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+  .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes blink { 0%,80%,100%{opacity:0} 40%{opacity:1} }
+  pre, code { white-space: pre-wrap; word-break: break-word; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto px-4 py-6 flex flex-col">
+
+  <!-- Progress bar (hidden until skill selected) -->
+  <div id="progress-wrap" class="hidden mb-4">
+    <div class="flex justify-between text-xs text-gray-400 mb-1">
+      <span id="skill-label" class="font-medium text-svaya-blue"></span>
+      <span id="pct-label">0%</span>
+    </div>
+    <div class="h-2 bg-gray-200 rounded-full overflow-hidden">
+      <div id="progress-bar-inner" class="progress-bar-inner h-full bg-svaya-blue rounded-full" style="width:0%"></div>
+    </div>
+  </div>
+
+  <!-- Chat window -->
+  <div id="chat-window" class="flex flex-col gap-4 pb-4">
+    <!-- Messages rendered by JS -->
+  </div>
+
+  <!-- Input bar (free-text + send, shown when LLM available) -->
+  <div id="input-bar" class="hidden mt-3 flex gap-2">
+    <input id="chat-input" type="text"
+           class="flex-1 border border-gray-300 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-svaya-blue"
+           placeholder="Type your answer or click an option above…" />
+    <button onclick="sendText()"
+            class="bg-svaya-blue hover:bg-blue-800 text-white px-4 py-2 rounded-xl text-sm font-medium transition">
+      Send
+    </button>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const SESSION_ID = "{{ session_id }}";
+const HAS_LLM = {{ 'true' if has_llm else 'false' }};
+
+const levelColors = {
+  0: '#94a3b8', 1: '#ef4444', 2: '#f97316',
+  3: '#eab308', 4: '#3b82f6', 5: '#7c3aed'
+};
+
+// ── Render helpers ──────────────────────────────────────────────────── //
+
+function md(text) {
+  return text
+    .replace(/^## (.+)$/gm, '<h2 class="text-xl font-bold text-svaya-blue mt-2 mb-1">$1</h2>')
+    .replace(/^### (.+)$/gm, '<h3 class="text-base font-bold text-svaya-teal mt-2 mb-1">$1</h3>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/`(.+?)`/g, '<code class="bg-gray-100 rounded px-1 text-xs font-mono">$1</code>')
+    .replace(/\n/g, '<br/>');
+}
+
+function appendBubble(role, html, extraClass = '') {
+  const win = document.getElementById('chat-window');
+  const wrap = document.createElement('div');
+  wrap.className = `flex ${role === 'user' ? 'justify-end' : 'justify-start'}`;
+  const bubble = document.createElement('div');
+  bubble.className = `bubble-${role} px-4 py-3 text-sm leading-relaxed ${extraClass}`;
+  bubble.innerHTML = html;
+  wrap.appendChild(bubble);
+  win.appendChild(wrap);
+  win.scrollTop = win.scrollHeight;
+  return bubble;
+}
+
+function typingIndicator() {
+  return appendBubble('assistant',
+    '<span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>',
+    'typing-indicator');
+}
+
+function removeTyping() {
+  document.querySelectorAll('.typing-indicator').forEach(el => el.parentElement.remove());
+}
+
+// ── Message renderers ───────────────────────────────────────────────── //
+
+function renderMessage(msg) {
+  switch (msg.type) {
+
+    case 'skill_select':
+      appendBubble('assistant', md(msg.content));
+      renderSkillMenu(msg.skills);
+      break;
+
+    case 'question':
+      updateProgress(msg.progress);
+      appendBubble('assistant', md(msg.content));
+      renderOptions(msg.options, msg.criterion, msg.scenario);
+      break;
+
+    case 'evidence':
+      appendBubble('assistant', md(msg.content));
+      renderEvidenceInput(msg.criterion, msg.scenario);
+      break;
+
+    case 'contact_form':
+      appendBubble('assistant', md(msg.content));
+      renderContactForm();
+      break;
+
+    case 'result_cta':
+      renderResultCTA(msg.lead_id);
+      break;
+
+    case 'probe_result':
+      renderProbeResult(msg.probe);
+      break;
+
+    case 'thinking':
+      appendBubble('assistant',
+        '<span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>');
+      break;
+
+    case 'hint':
+    case 'markdown':
+    default:
+      if (msg.content) appendBubble('assistant', md(msg.content));
+      break;
+  }
+}
+
+function renderSkillMenu(skills) {
+  const win = document.getElementById('chat-window');
+  const grid = document.createElement('div');
+  grid.className = 'grid grid-cols-1 sm:grid-cols-2 gap-3 my-2';
+  skills.forEach(sk => {
+    const card = document.createElement('div');
+    card.className = 'skill-card';
+    card.innerHTML = `
+      <div class="text-2xl mb-2">${sk.icon}</div>
+      <div class="font-bold text-sm text-svaya-blue">${sk.name}</div>
+      <div class="text-xs text-gray-500 mt-1">${sk.description}</div>
+    `;
+    card.onclick = () => selectSkill(sk.id, sk.name);
+    grid.appendChild(card);
+  });
+  win.appendChild(grid);
+  win.scrollTop = win.scrollHeight;
+}
+
+function renderOptions(options, criterionId, scenarioId) {
+  const win = document.getElementById('chat-window');
+  const wrap = document.createElement('div');
+  wrap.className = 'flex flex-col gap-2 my-2';
+  options.forEach(opt => {
+    const btn = document.createElement('button');
+    btn.className = 'option-btn';
+    const color = levelColors[opt.level] || '#888';
+    btn.innerHTML = `
+      <span class="level-pill" style="background:${color}">L${opt.level}</span>
+      <span class="font-semibold text-sm">${opt.label}</span>
+      <div class="text-xs text-gray-500 mt-1 ml-1">${opt.description}</div>
+    `;
+    btn.onclick = () => {
+      wrap.querySelectorAll('.option-btn').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      wrap.querySelectorAll('.option-btn').forEach(b => b.disabled = true);
+      appendBubble('user', `<span class="level-pill" style="background:${color}">L${opt.level}</span> ${opt.label}`);
+      sendOptionSelect(criterionId, scenarioId, opt.level, opt.description);
+    };
+    wrap.appendChild(btn);
+  });
+  win.appendChild(wrap);
+  win.scrollTop = win.scrollHeight;
+}
+
+function renderEvidenceInput(criterionId, scenarioId) {
+  const win = document.getElementById('chat-window');
+  const wrap = document.createElement('div');
+  wrap.className = 'flex gap-2 my-2';
+  wrap.innerHTML = `
+    <input id="evidence-input" type="text"
+           class="flex-1 border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-svaya-blue"
+           placeholder="Describe briefly, or leave empty to skip…" />
+    <button class="bg-svaya-teal text-white px-4 py-2 rounded-xl text-sm font-medium"
+            onclick="submitEvidence('${criterionId}','${scenarioId}')">
+      Submit
+    </button>
+    <button class="border border-gray-300 text-gray-600 px-3 py-2 rounded-xl text-sm"
+            onclick="skipEvidence('${criterionId}','${scenarioId}')">
+      Skip
+    </button>
+  `;
+  win.appendChild(wrap);
+  win.scrollTop = win.scrollHeight;
+}
+
+function renderContactForm() {
+  const win = document.getElementById('chat-window');
+  const form = document.createElement('div');
+  form.className = 'bg-white border border-gray-200 rounded-2xl p-6 my-3';
+  form.innerHTML = `
+    <div class="grid grid-cols-2 gap-3">
+      <div><label class="text-xs font-medium text-gray-600">Company *</label>
+        <input id="cf-company" type="text" required
+               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:border-svaya-blue"/></div>
+      <div><label class="text-xs font-medium text-gray-600">Your Name *</label>
+        <input id="cf-name" type="text" required
+               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:border-svaya-blue"/></div>
+      <div><label class="text-xs font-medium text-gray-600">Work Email *</label>
+        <input id="cf-email" type="email" required
+               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:border-svaya-blue"/></div>
+      <div><label class="text-xs font-medium text-gray-600">Phone</label>
+        <input id="cf-phone" type="tel"
+               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:border-svaya-blue"/></div>
+    </div>
+    <button onclick="submitContact()"
+            class="mt-4 w-full bg-svaya-teal hover:bg-teal-500 text-white font-bold py-3 rounded-xl transition">
+      Get My Full Report →
+    </button>
+  `;
+  win.appendChild(form);
+  win.scrollTop = win.scrollHeight;
+}
+
+function renderResultCTA(leadId) {
+  const win = document.getElementById('chat-window');
+  const cta = document.createElement('div');
+  cta.className = 'flex flex-col sm:flex-row gap-3 my-3';
+  cta.innerHTML = `
+    <a href="/results/${leadId}"
+       class="flex-1 bg-svaya-blue hover:bg-blue-800 text-white font-bold text-center py-4 rounded-xl shadow transition">
+      📊 View Full Results
+    </a>
+    <a href="/results/${leadId}/pdf"
+       class="flex-1 bg-svaya-teal hover:bg-teal-400 text-white font-bold text-center py-4 rounded-xl shadow transition">
+      ⬇ Download PDF Report
+    </a>
+  `;
+  win.appendChild(cta);
+  win.scrollTop = win.scrollHeight;
+}
+
+function renderProbeResult(probe) {
+  if (!probe) return;
+  const readinessColors = {
+    READY: '#22C55E', PARTIAL: '#F59E0B', NEEDS_CONFIG: '#F97316', UNREACHABLE: '#EF4444'
+  };
+  const rc = probe.astra_readiness || 'UNREACHABLE';
+  const col = readinessColors[rc] || '#94A3B8';
+  const checks = ['reachability','tls_info','nms_api','tr369_usp','pm_sample']
+    .map(k => probe[k] || null)
+    .filter(Boolean);
+
+  let checksHtml = checks.map(c => `
+    <div class="flex gap-3 items-start py-1.5 border-b border-gray-100 last:border-0">
+      <span class="probe-${c.status} text-xs w-10 shrink-0">${c.status.toUpperCase()}</span>
+      <div>
+        <p class="text-xs font-medium">${c.check}</p>
+        <p class="text-xs text-gray-500">${(c.detail || '').slice(0, 100)}${c.latency_ms ? ` · ${c.latency_ms}ms` : ''}</p>
+      </div>
+    </div>`).join('');
+
+  const html = `
+    <div class="mb-2">
+      <span class="text-white text-xs font-bold px-3 py-1 rounded-full"
+            style="background:${col}">${rc}</span>
+      <span class="text-sm text-gray-600 ml-2">${probe.summary || ''}</span>
+    </div>
+    <div class="text-xs">${checksHtml}</div>`;
+
+  appendBubble('assistant', html);
+}
+
+// ── Progress bar ────────────────────────────────────────────────────── //
+
+function updateProgress(pct) {
+  document.getElementById('progress-wrap').classList.remove('hidden');
+  document.getElementById('progress-bar-inner').style.width = pct + '%';
+  document.getElementById('pct-label').textContent = pct + '% complete';
+}
+
+// ── API calls ───────────────────────────────────────────────────────── //
+
+async function post(url, body) {
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  });
+  return r.json();
+}
+
+async function selectSkill(skillId, skillName) {
+  document.getElementById('skill-label').textContent = skillName;
+  appendBubble('user', skillName);
+  const ind = typingIndicator();
+  const data = await post(`/chat/${SESSION_ID}/skill`, {skill_id: skillId});
+  removeTyping();
+  (data.messages || []).forEach(renderMessage);
+  if (HAS_LLM) document.getElementById('input-bar').classList.remove('hidden');
+}
+
+async function sendOptionSelect(criterionId, scenarioId, level, text) {
+  const ind = typingIndicator();
+  const data = await post(`/chat/${SESSION_ID}/option`, {
+    criterion_id: criterionId, scenario_id: scenarioId, level, option_text: text
+  });
+  removeTyping();
+  (data.messages || []).forEach(renderMessage);
+}
+
+async function submitEvidence(criterionId, scenarioId) {
+  const val = (document.getElementById('evidence-input')?.value || '').trim();
+  if (val) appendBubble('user', val);
+  const data = await post(`/chat/${SESSION_ID}/evidence`, {
+    criterion_id: criterionId, scenario_id: scenarioId, evidence_text: val
+  });
+  (data.messages || []).forEach(renderMessage);
+}
+
+async function skipEvidence(criterionId, scenarioId) {
+  const data = await post(`/chat/${SESSION_ID}/evidence`, {
+    criterion_id: criterionId, scenario_id: scenarioId, evidence_text: ''
+  });
+  (data.messages || []).forEach(renderMessage);
+}
+
+async function sendText() {
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  appendBubble('user', text);
+  const ind = typingIndicator();
+  const data = await post(`/chat/${SESSION_ID}/message`, {text});
+  removeTyping();
+  (data.messages || []).forEach(renderMessage);
+}
+
+async function submitContact() {
+  const company = document.getElementById('cf-company')?.value.trim();
+  const name    = document.getElementById('cf-name')?.value.trim();
+  const email   = document.getElementById('cf-email')?.value.trim();
+  const phone   = document.getElementById('cf-phone')?.value.trim();
+  if (!company || !name || !email) {
+    alert('Please fill in company, name, and email.');
+    return;
+  }
+  appendBubble('user', `${name} · ${company} · ${email}`);
+  const ind = typingIndicator();
+  const data = await post(`/chat/${SESSION_ID}/contact`, {
+    company, contact_name: name, email, phone
+  });
+  removeTyping();
+  (data.messages || []).forEach(renderMessage);
+}
+
+// ── Keyboard submit ────────────────────────────────────────────────── //
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('chat-input')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendText(); }
+  });
+  // Render initial welcome already injected by the server
+  const initial = {{ initial_messages | tojson }};
+  initial.forEach(renderMessage);
+});
+</script>
+{% endblock %}
